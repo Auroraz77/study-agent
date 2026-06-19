@@ -1,0 +1,8 @@
+.venv/
+.tmp/
+__pycache__/
+*.py[cod]
+data/rag_index.json
+data/knowledge/*
+!data/knowledge/.gitkeep
+.env

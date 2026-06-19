@@ -1,0 +1,236 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>个性化学习多智能体系统</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <aside class="sidebar">
+        <div class="brand">
+          <div class="brand-mark">LG</div>
+          <div>
+            <h1>学习智能体</h1>
+            <p>LangGraph Multi-Agent</p>
+          </div>
+        </div>
+
+        <nav class="nav-switch" aria-label="页面切换">
+          <button id="workspaceNav" class="nav-btn active" data-view="workspaceView">学习工作台</button>
+          <button id="dashboardNav" class="nav-btn" data-view="dashboardView">数据中心</button>
+        </nav>
+
+        <section class="panel workspace-panel">
+          <h2>学生需求</h2>
+          <label>
+            学生 ID
+            <input id="studentId" value="demo-student" />
+          </label>
+          <label>
+            课程
+            <input id="course" value="机器学习" />
+          </label>
+          <label>
+            学习描述
+            <textarea id="message" rows="8">我是人工智能专业学生，想学习逻辑回归和模型评估。我的 Python 基础还可以，但数学基础一般，更喜欢图解和代码案例，每周大概能学习 6 小时。</textarea>
+          </label>
+          <button id="runBtn" class="primary-btn">
+            <span>生成方案</span>
+          </button>
+        </section>
+
+        <section class="panel workspace-panel">
+          <h2>课程知识库</h2>
+          <div class="upload-row">
+            <input id="fileInput" type="file" accept=".txt,.md,.csv,.pdf,.doc,.docx,.ppt,.pptx" />
+            <button id="uploadBtn" class="secondary-btn">上传</button>
+          </div>
+          <button id="seedBtn" class="secondary-btn full">导入演示资料</button>
+          <p id="kbStatus" class="muted">原文件上传到 MinIO；文档解析后进入 PostgreSQL/pgvector。</p>
+        </section>
+
+        <section class="panel dashboard-panel hidden">
+          <h2>数据中心</h2>
+          <button id="refreshDashboardBtn" class="primary-btn">刷新数据</button>
+          <p class="muted">展示 PostgreSQL、pgvector 和 MinIO 沉淀的数据。</p>
+        </section>
+      </aside>
+
+      <main id="workspaceView" class="workspace app-view active">
+        <header class="topbar">
+          <div>
+            <p class="eyebrow">Personalized Learning Workflow</p>
+            <h2>个性化资源生成与学习路径规划</h2>
+          </div>
+          <div id="statusPill" class="status-pill">待生成</div>
+        </header>
+
+        <section class="summary-band">
+          <div>
+            <span class="metric-label">画像智能体</span>
+            <strong id="profileMetric">未运行</strong>
+          </div>
+          <div>
+            <span class="metric-label">RAG 检索</span>
+            <strong id="ragMetric">0 条</strong>
+          </div>
+          <div>
+            <span class="metric-label">资源智能体</span>
+            <strong id="resourceMetric">0 类</strong>
+          </div>
+          <div>
+            <span class="metric-label">路径规划</span>
+            <strong id="pathMetric">未生成</strong>
+          </div>
+        </section>
+
+        <section class="content-grid">
+          <div class="main-column">
+            <section class="section-block">
+              <div class="section-heading">
+                <h3>学习方案摘要</h3>
+              </div>
+              <pre id="finalAnswer" class="answer-box">填写学生需求后，点击“生成方案”。</pre>
+            </section>
+
+            <section class="section-block">
+              <div class="section-heading">
+                <h3>个性化资源</h3>
+                <div id="resourceTabs" class="tabs"></div>
+              </div>
+              <article id="resourceContent" class="resource-view">暂无资源。</article>
+            </section>
+          </div>
+
+          <div class="side-column">
+            <section class="section-block compact">
+              <h3>学生画像</h3>
+              <div id="profileView" class="profile-list">暂无画像。</div>
+            </section>
+
+            <section class="section-block compact">
+              <h3>学习路径</h3>
+              <div id="pathView" class="timeline">暂无路径。</div>
+            </section>
+
+            <section class="section-block compact">
+              <h3>知识库命中</h3>
+              <div id="contextView" class="context-list">暂无检索结果。</div>
+            </section>
+          </div>
+        </section>
+      </main>
+
+      <main id="dashboardView" class="workspace app-view hidden">
+        <header class="topbar">
+          <div>
+            <p class="eyebrow">Data Center</p>
+            <h2>系统数据中心</h2>
+          </div>
+          <div id="dashboardStatus" class="status-pill">待刷新</div>
+        </header>
+
+        <section id="dashboardMetrics" class="summary-band dashboard-metrics"></section>
+
+        <section class="dashboard-layout">
+          <section class="section-block">
+            <div class="section-heading">
+              <h3>课程资料管理</h3>
+              <span class="muted">course_files + knowledge_chunks</span>
+            </div>
+            <div class="data-table-wrap">
+              <table class="data-table">
+                <thead>
+                  <tr>
+                    <th>ID</th>
+                    <th>课程</th>
+                    <th>文件名</th>
+                    <th>类型</th>
+                    <th>大小</th>
+                    <th>状态</th>
+                    <th>切片</th>
+                    <th>MinIO 对象</th>
+                  </tr>
+                </thead>
+                <tbody id="filesTable"></tbody>
+              </table>
+            </div>
+          </section>
+
+          <section class="section-block">
+            <div class="section-heading">
+              <h3>知识库检索</h3>
+              <div class="search-row">
+                <input id="dashboardSearchInput" value="支持向量机 最大间隔 分类超平面" />
+                <button id="dashboardSearchBtn" class="secondary-btn">检索</button>
+              </div>
+            </div>
+            <div id="dashboardSearchResults" class="context-list dashboard-search-results">暂无检索结果。</div>
+          </section>
+
+          <section class="section-block">
+            <div class="section-heading">
+              <h3>学生画像</h3>
+              <span class="muted">student_profiles</span>
+            </div>
+            <div id="profilesList" class="record-list"></div>
+          </section>
+
+          <section class="section-block">
+            <div class="section-heading">
+              <h3>生成资源历史</h3>
+              <span class="muted">generated_resources</span>
+            </div>
+            <div id="resourcesList" class="record-list"></div>
+          </section>
+
+          <section class="section-block">
+            <div class="section-heading">
+              <h3>学习路径历史</h3>
+              <span class="muted">learning_paths</span>
+            </div>
+            <div id="pathsList" class="record-list"></div>
+          </section>
+
+          <section class="section-block">
+            <div class="section-heading">
+              <h3>学习行为日志</h3>
+              <span class="muted">learning_events</span>
+            </div>
+            <div class="data-table-wrap">
+              <table class="data-table">
+                <thead>
+                  <tr>
+                    <th>ID</th>
+                    <th>学生</th>
+                    <th>课程</th>
+                    <th>事件</th>
+                    <th>时间</th>
+                    <th>数据</th>
+                  </tr>
+                </thead>
+                <tbody id="eventsTable"></tbody>
+              </table>
+            </div>
+          </section>
+        </section>
+      </main>
+    </div>
+
+    <script>
+      window.MathJax = {
+        tex: {
+          inlineMath: [["$", "$"], ["\\(", "\\)"]],
+          displayMath: [["$$", "$$"], ["\\[", "\\]"]],
+        },
+        options: {
+          skipHtmlTags: ["script", "noscript", "style", "textarea", "pre", "code"],
+        },
+      };
+    </script>
+    <script defer src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
+    <script defer src="/app.js"></script>
+  </body>
+</html>
