@@ -18,6 +18,8 @@ QWEN_BASE_URL = os.getenv(
 QWEN_API_KEY = os.getenv("DASHSCOPE_API_KEY") or os.getenv("QWEN_API_KEY")
 QWEN_MODEL = os.getenv("QWEN_MODEL", "qwen-plus")
 FORCE_MOCK_LLM = os.getenv("FORCE_MOCK_LLM", "0") == "1"
+AUTH_SECRET_KEY = os.getenv("AUTH_SECRET_KEY", "dev-learning-agent-secret")
+AUTH_TOKEN_EXPIRE_HOURS = int(os.getenv("AUTH_TOKEN_EXPIRE_HOURS", "24"))
 
 APP_HOST = os.getenv("APP_HOST", "127.0.0.1")
 APP_PORT = int(os.getenv("APP_PORT", "8000"))

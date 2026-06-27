@@ -20,6 +20,7 @@ from app.db.models import (
     LearningEvent,
     LearningPath,
     StudentProfile,
+    User,
 )
 
 
@@ -41,6 +42,33 @@ class LearningRepository:
         self.session.add(course)
         self.session.flush()
         return course
+
+    def create_user(
+        self,
+        username: str,
+        password_hash: str,
+        student_id: str,
+        role: str = "student",
+    ) -> User:
+        user = User(
+            username=username,
+            password_hash=password_hash,
+            student_id=student_id,
+            role=role or "student",
+        )
+        self.session.add(user)
+        self.session.commit()
+        self.session.refresh(user)
+        return user
+
+    def get_user_by_id(self, user_id: int) -> User | None:
+        return self.session.get(User, user_id)
+
+    def get_user_by_username(self, username: str) -> User | None:
+        return self.session.scalar(select(User).where(User.username == username))
+
+    def get_user_by_student_id(self, student_id: str) -> User | None:
+        return self.session.scalar(select(User).where(User.student_id == student_id))
 
     def create_course_file(
         self,
@@ -232,6 +260,41 @@ class LearningRepository:
         )
         self.session.commit()
 
+    def save_quiz_attempt(
+        self,
+        student_id: str,
+        course_name: str,
+        result: dict[str, Any],
+    ) -> None:
+        course = self.get_or_create_course(course_name)
+        self.session.add(
+            LearningEvent(
+                student_id=student_id,
+                course_id=course.id,
+                event_type="submit_quiz",
+                event_data=result,
+            )
+        )
+        self.session.commit()
+
+    def save_learning_event(
+        self,
+        student_id: str,
+        course_name: str,
+        event_type: str,
+        event_data: dict[str, Any],
+    ) -> None:
+        course = self.get_or_create_course(course_name)
+        self.session.add(
+            LearningEvent(
+                student_id=student_id,
+                course_id=course.id,
+                event_type=event_type,
+                event_data=event_data,
+            )
+        )
+        self.session.commit()
+
     def _lexical_search(
         self,
         query: str,
@@ -252,14 +315,15 @@ class LearningRepository:
         scored.sort(key=lambda item: item[0], reverse=True)
         return [_chunk_to_item(chunk, score=score) for score, chunk in scored[:top_k]]
 
-    def dashboard_summary(self) -> dict[str, Any]:
+    def dashboard_summary(self, student_id: str | None = None) -> dict[str, Any]:
         file_status_rows = self.session.execute(
             select(CourseFile.parse_status, func.count(CourseFile.id)).group_by(CourseFile.parse_status)
         ).all()
+        resource_type_stmt = select(GeneratedResource.resource_type, func.count(GeneratedResource.id))
+        if student_id:
+            resource_type_stmt = resource_type_stmt.where(GeneratedResource.student_id == student_id)
         resource_type_rows = self.session.execute(
-            select(GeneratedResource.resource_type, func.count(GeneratedResource.id)).group_by(
-                GeneratedResource.resource_type
-            )
+            resource_type_stmt.group_by(GeneratedResource.resource_type)
         ).all()
         course_chunk_rows = self.session.execute(
             select(Course.name, func.count(KnowledgeChunk.id))
@@ -279,9 +343,9 @@ class LearningRepository:
                 or 0,
                 "knowledge_chunks": self.session.scalar(select(func.count(KnowledgeChunk.id))) or 0,
                 "knowledge_embeddings": self.session.scalar(select(func.count(KnowledgeEmbedding.id))) or 0,
-                "student_profiles": self.session.scalar(select(func.count(StudentProfile.id))) or 0,
-                "generated_resources": self.session.scalar(select(func.count(GeneratedResource.id))) or 0,
-                "learning_events": self.session.scalar(select(func.count(LearningEvent.id))) or 0,
+                "student_profiles": self._count_for_student(StudentProfile, student_id),
+                "generated_resources": self._count_for_student(GeneratedResource, student_id),
+                "learning_events": self._count_for_student(LearningEvent, student_id),
             },
             "file_status": [
                 {"status": status or "unknown", "count": count}
@@ -325,13 +389,15 @@ class LearningRepository:
             for file, course, chunks in self.session.execute(stmt).all()
         ]
 
-    def dashboard_profiles(self, limit: int = 50) -> list[dict[str, Any]]:
+    def dashboard_profiles(self, limit: int = 50, student_id: str | None = None) -> list[dict[str, Any]]:
         stmt = (
             select(StudentProfile, Course.name)
             .join(Course, Course.id == StudentProfile.course_id)
             .order_by(StudentProfile.updated_at.desc())
-            .limit(limit)
         )
+        if student_id:
+            stmt = stmt.where(StudentProfile.student_id == student_id)
+        stmt = stmt.limit(limit)
         return [
             {
                 "id": profile.id,
@@ -349,13 +415,15 @@ class LearningRepository:
             for profile, course in self.session.execute(stmt).all()
         ]
 
-    def dashboard_resources(self, limit: int = 50) -> list[dict[str, Any]]:
+    def dashboard_resources(self, limit: int = 50, student_id: str | None = None) -> list[dict[str, Any]]:
         stmt = (
             select(GeneratedResource, Course.name)
             .join(Course, Course.id == GeneratedResource.course_id)
             .order_by(GeneratedResource.created_at.desc())
-            .limit(limit)
         )
+        if student_id:
+            stmt = stmt.where(GeneratedResource.student_id == student_id)
+        stmt = stmt.limit(limit)
         return [
             {
                 "id": resource.id,
@@ -370,13 +438,15 @@ class LearningRepository:
             for resource, course in self.session.execute(stmt).all()
         ]
 
-    def dashboard_paths(self, limit: int = 50) -> list[dict[str, Any]]:
+    def dashboard_paths(self, limit: int = 50, student_id: str | None = None) -> list[dict[str, Any]]:
         stmt = (
             select(LearningPath, Course.name)
             .join(Course, Course.id == LearningPath.course_id)
             .order_by(LearningPath.created_at.desc())
-            .limit(limit)
         )
+        if student_id:
+            stmt = stmt.where(LearningPath.student_id == student_id)
+        stmt = stmt.limit(limit)
         paths = []
         for path, course in self.session.execute(stmt).all():
             stages = (path.path_json or {}).get("stages", [])
@@ -395,13 +465,15 @@ class LearningRepository:
             )
         return paths
 
-    def dashboard_events(self, limit: int = 80) -> list[dict[str, Any]]:
+    def dashboard_events(self, limit: int = 80, student_id: str | None = None) -> list[dict[str, Any]]:
         stmt = (
             select(LearningEvent, Course.name)
             .join(Course, Course.id == LearningEvent.course_id)
             .order_by(LearningEvent.created_at.desc())
-            .limit(limit)
         )
+        if student_id:
+            stmt = stmt.where(LearningEvent.student_id == student_id)
+        stmt = stmt.limit(limit)
         return [
             {
                 "id": event.id,
@@ -414,6 +486,12 @@ class LearningRepository:
             }
             for event, course in self.session.execute(stmt).all()
         ]
+
+    def _count_for_student(self, model: Any, student_id: str | None) -> int:
+        stmt = select(func.count(model.id))
+        if student_id:
+            stmt = stmt.where(model.student_id == student_id)
+        return self.session.scalar(stmt) or 0
 
 
 def _chunk_text(text: str, size: int = 450, overlap: int = 80) -> list[str]:

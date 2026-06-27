@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>个性化学习多智能体系统</title>
-    <link rel="stylesheet" href="/styles.css" />
+    <link rel="stylesheet" href="/styles.css?v=qa14" />
   </head>
   <body>
     <div class="app-shell">
@@ -24,10 +24,6 @@
 
         <section class="panel workspace-panel">
           <h2>学生需求</h2>
-          <label>
-            学生 ID
-            <input id="studentId" value="demo-student" />
-          </label>
           <label>
             课程
             <input id="course" value="机器学习" />
@@ -57,6 +53,46 @@
           <p class="muted">展示 PostgreSQL、pgvector 和 MinIO 沉淀的数据。</p>
         </section>
       </aside>
+
+      <div class="account-widget">
+        <button id="accountTrigger" class="account-trigger">登录</button>
+        <div id="accountMenu" class="account-menu hidden">
+          <div class="account-card">
+            <strong id="accountName">未登录</strong>
+            <span id="accountStudentId">请先登录</span>
+          </div>
+          <button id="logoutBtn" class="account-menu-item">退出登录</button>
+        </div>
+      </div>
+
+      <div id="authModal" class="auth-modal hidden" role="dialog" aria-modal="true" aria-labelledby="authTitle">
+        <div class="auth-dialog">
+          <div class="auth-dialog-head">
+            <div>
+              <p class="eyebrow">Student Account</p>
+              <h2 id="authTitle">登录</h2>
+            </div>
+            <button id="authCloseBtn" class="icon-btn" aria-label="关闭">×</button>
+          </div>
+          <p id="authInfo" class="auth-info">登录后生成和查看你的个性化学习数据。</p>
+          <label>
+            用户名
+            <input id="authUsername" value="demo-student" autocomplete="username" />
+          </label>
+          <label>
+            密码
+            <input id="authPassword" type="password" value="demo123" autocomplete="current-password" />
+          </label>
+          <label id="studentIdField">
+            学生 ID
+            <input id="authStudentId" value="demo-student" />
+          </label>
+          <div class="auth-actions">
+            <button id="loginBtn" class="primary-btn">登录</button>
+            <button id="registerBtn" class="secondary-btn">注册</button>
+          </div>
+        </div>
+      </div>
 
       <main id="workspaceView" class="workspace app-view active">
         <header class="topbar">
@@ -88,6 +124,39 @@
 
         <section class="content-grid">
           <div class="main-column">
+            <section class="section-block qa-block">
+              <div id="qaResizeHandle" class="qa-resize-handle" title="拖动调整问答栏宽度"></div>
+              <div class="section-heading">
+                <h3>学习问答</h3>
+                <span class="muted">结合当前课程与知识库回答</span>
+              </div>
+              <div class="qa-input-row">
+                <textarea id="qaQuestion" rows="3" placeholder="输入学习中遇到的问题，例如：为什么 HDFS 适合大文件存储？"></textarea>
+                <div class="qa-input-actions">
+                  <div class="qa-mode-menu-wrap">
+                    <button id="qaModeTrigger" class="qa-mode-trigger" type="button" aria-expanded="false">
+                      <span id="qaModeLabel">结合知识库</span>
+                      <span class="qa-mode-caret">⌄</span>
+                    </button>
+                    <div id="qaModeMenu" class="qa-mode-menu hidden">
+                      <button id="qaModeRag" class="qa-mode-option active" type="button" data-mode="rag">
+                        <span>结合知识库</span>
+                        <small>检索课程资料后回答</small>
+                      </button>
+                      <button id="qaModeLlm" class="qa-mode-option" type="button" data-mode="llm">
+                        <span>直接问AI</span>
+                        <small>不检索资料，直接回答</small>
+                      </button>
+                    </div>
+                  </div>
+                  <button id="askBtn" class="primary-btn" type="button">提问</button>
+                </div>
+              </div>
+              <div id="qaHistory" class="qa-history">
+                <div class="qa-empty">暂无问答。生成学习方案或上传资料后，可以在这里继续追问。</div>
+              </div>
+            </section>
+
             <section class="section-block">
               <div class="section-heading">
                 <h3>学习方案摘要</h3>
@@ -231,6 +300,6 @@
       };
     </script>
     <script defer src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
-    <script defer src="/app.js"></script>
+    <script defer src="/app.js?v=qa14"></script>
   </body>
 </html>

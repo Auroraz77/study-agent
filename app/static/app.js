@@ -7,26 +7,154 @@ const kbStatus = document.getElementById("kbStatus");
 const refreshDashboardBtn = document.getElementById("refreshDashboardBtn");
 const dashboardSearchBtn = document.getElementById("dashboardSearchBtn");
 const dashboardStatus = document.getElementById("dashboardStatus");
+const askBtn = document.getElementById("askBtn");
+const qaQuestion = document.getElementById("qaQuestion");
+const qaHistory = document.getElementById("qaHistory");
+const qaResizeHandle = document.getElementById("qaResizeHandle");
+const qaModeButtons = document.querySelectorAll(".qa-mode-option");
+const qaModeTrigger = document.getElementById("qaModeTrigger");
+const qaModeMenu = document.getElementById("qaModeMenu");
+const qaModeLabel = document.getElementById("qaModeLabel");
+const loginBtn = document.getElementById("loginBtn");
+const registerBtn = document.getElementById("registerBtn");
+const logoutBtn = document.getElementById("logoutBtn");
+const accountTrigger = document.getElementById("accountTrigger");
+const accountMenu = document.getElementById("accountMenu");
+const accountName = document.getElementById("accountName");
+const accountStudentId = document.getElementById("accountStudentId");
+const authModal = document.getElementById("authModal");
+const authCloseBtn = document.getElementById("authCloseBtn");
+const authTitle = document.getElementById("authTitle");
+const authInfo = document.getElementById("authInfo");
+const authUsername = document.getElementById("authUsername");
+const authPassword = document.getElementById("authPassword");
+const authStudentId = document.getElementById("authStudentId");
 
 let currentResources = [];
 let dashboardLoaded = false;
+let authToken = localStorage.getItem("learning_auth_token") || "";
+let currentUser = null;
+let qaMode = localStorage.getItem("learning_qa_mode") || "rag";
 
 runBtn.addEventListener("click", runWorkflow);
 seedBtn.addEventListener("click", seedKnowledge);
 uploadBtn.addEventListener("click", uploadKnowledge);
 refreshDashboardBtn.addEventListener("click", loadDashboard);
 dashboardSearchBtn.addEventListener("click", searchDashboardKnowledge);
+askBtn.addEventListener("click", askQuestion);
+qaModeTrigger.addEventListener("click", toggleQaModeMenu);
+qaModeButtons.forEach((button) => {
+  button.addEventListener("click", () => {
+    setQaMode(button.dataset.mode || "rag");
+    closeQaModeMenu();
+  });
+});
+loginBtn.addEventListener("click", login);
+registerBtn.addEventListener("click", register);
+logoutBtn.addEventListener("click", logout);
+accountTrigger.addEventListener("click", toggleAccount);
+authCloseBtn.addEventListener("click", closeAuthModal);
+authModal.addEventListener("click", (event) => {
+  if (event.target === authModal) {
+    closeAuthModal();
+  }
+});
+document.addEventListener("keydown", (event) => {
+  if (event.key === "Escape") {
+    closeAuthModal();
+    accountMenu.classList.add("hidden");
+    closeQaModeMenu();
+  }
+});
+document.addEventListener("click", (event) => {
+  if (!qaModeMenu?.contains(event.target) && !qaModeTrigger?.contains(event.target)) {
+    closeQaModeMenu();
+  }
+});
 
 document.querySelectorAll(".nav-btn").forEach((button) => {
   button.addEventListener("click", () => switchView(button.dataset.view));
 });
 
+restoreSession();
+moveLearningInfoToSidebar();
+initQaResize();
+setQaMode(qaMode);
+document.getElementById("contextView")?.closest(".section-block")?.classList.add("hidden");
+
+function moveLearningInfoToSidebar() {
+  const knowledgePanel = kbStatus.closest(".panel");
+  const profilePanel = document.getElementById("profileView")?.closest(".section-block");
+  const pathPanel = document.getElementById("pathView")?.closest(".section-block");
+  if (!knowledgePanel || !profilePanel || !pathPanel) return;
+
+  [profilePanel, pathPanel].forEach((panel) => {
+    panel.classList.add("workspace-panel", "sidebar-info-panel");
+  });
+  knowledgePanel.after(profilePanel);
+  profilePanel.after(pathPanel);
+}
+
+function initQaResize() {
+  const grid = document.querySelector(".content-grid");
+  if (!grid || !qaResizeHandle) return;
+
+  const savedWidth = Number(localStorage.getItem("learning_qa_width") || 0);
+  if (savedWidth) {
+    grid.style.setProperty("--qa-width", `${savedWidth}px`);
+  }
+
+  let dragging = false;
+  qaResizeHandle.addEventListener("pointerdown", (event) => {
+    dragging = true;
+    qaResizeHandle.setPointerCapture(event.pointerId);
+    document.body.classList.add("resizing-qa");
+  });
+
+  qaResizeHandle.addEventListener("pointermove", (event) => {
+    if (!dragging) return;
+    const rect = grid.getBoundingClientRect();
+    const minWidth = 360;
+    const maxWidth = Math.min(760, Math.max(minWidth, rect.width * 0.55));
+    const width = Math.round(Math.min(maxWidth, Math.max(minWidth, rect.right - event.clientX)));
+    grid.style.setProperty("--qa-width", `${width}px`);
+    localStorage.setItem("learning_qa_width", String(width));
+  });
+
+  qaResizeHandle.addEventListener("pointerup", (event) => {
+    dragging = false;
+    qaResizeHandle.releasePointerCapture(event.pointerId);
+    document.body.classList.remove("resizing-qa");
+  });
+}
+
+function setQaMode(mode) {
+  qaMode = mode === "llm" ? "llm" : "rag";
+  localStorage.setItem("learning_qa_mode", qaMode);
+  if (qaModeLabel) {
+    qaModeLabel.textContent = qaMode === "llm" ? "直接问AI" : "结合知识库";
+  }
+  qaModeButtons.forEach((button) => {
+    button.classList.toggle("active", button.dataset.mode === qaMode);
+  });
+}
+
+function toggleQaModeMenu() {
+  const isHidden = qaModeMenu.classList.toggle("hidden");
+  qaModeTrigger.setAttribute("aria-expanded", String(!isHidden));
+}
+
+function closeQaModeMenu() {
+  qaModeMenu?.classList.add("hidden");
+  qaModeTrigger?.setAttribute("aria-expanded", "false");
+}
+
 async function runWorkflow() {
+  if (!requireLogin()) return;
   setStatus("running", "生成中");
   runBtn.disabled = true;
 
   const payload = {
-    student_id: document.getElementById("studentId").value.trim() || "demo-student",
     course: document.getElementById("course").value.trim() || "机器学习",
     message: document.getElementById("message").value.trim(),
   };
@@ -72,6 +200,7 @@ async function uploadKnowledge() {
   try {
     const response = await fetch("/api/knowledge/upload", {
       method: "POST",
+      headers: authHeaders(false),
       body: form,
     });
     if (!response.ok) {
@@ -90,6 +219,112 @@ async function uploadKnowledge() {
     kbStatus.textContent = error.message;
     setStatus("error", "上传失败");
   }
+}
+
+async function askQuestion() {
+  if (!requireLogin()) return;
+  const question = qaQuestion.value.trim();
+  if (!question) {
+    qaQuestion.focus();
+    return;
+  }
+
+  askBtn.disabled = true;
+  askBtn.textContent = "回答中";
+  appendQaMessage({
+    question,
+    answer: qaMode === "rag" ? "正在检索课程资料并生成回答..." : "正在直接请求 AI 生成回答...",
+    pending: true,
+    mode: qaMode,
+  });
+
+  try {
+    const result = await postJson("/api/qa/ask", {
+      course: document.getElementById("course").value.trim() || "机器学习",
+      question,
+      learning_context: qaMode === "rag" ? document.getElementById("message").value.trim() : "",
+      mode: qaMode,
+    });
+    updateLastQaMessage({
+      question,
+      answer: result.answer || "暂无回答。",
+      context: result.retrieved_context || [],
+      mode: result.mode || qaMode,
+    });
+    qaQuestion.value = "";
+    dashboardLoaded = false;
+  } catch (error) {
+    updateLastQaMessage({
+      question,
+      answer: error.message,
+      error: true,
+      mode: qaMode,
+    });
+  } finally {
+    askBtn.disabled = false;
+    askBtn.textContent = "提问";
+  }
+}
+
+function appendQaMessage(entry) {
+  qaHistory.querySelector(".qa-empty")?.remove();
+  const item = document.createElement("article");
+  item.className = `qa-message ${entry.pending ? "pending" : ""}`;
+  item.innerHTML = renderQaMessage(entry);
+  qaHistory.appendChild(item);
+  qaHistory.scrollTop = qaHistory.scrollHeight;
+}
+
+function updateLastQaMessage(entry) {
+  const item = qaHistory.querySelector(".qa-message:last-child");
+  if (!item) {
+    appendQaMessage(entry);
+    return;
+  }
+  item.className = `qa-message ${entry.error ? "error" : ""}`;
+  item.innerHTML = renderQaMessage(entry);
+  typesetMath(item);
+  qaHistory.scrollTop = qaHistory.scrollHeight;
+}
+
+function renderQaMessage(entry) {
+  const modeLabel = entry.mode === "llm" ? "直接问AI" : "结合知识库";
+  const sources =
+    Array.isArray(entry.context) && entry.context.length
+      ? `
+        <details class="qa-sources">
+          <summary>查看依据片段（${entry.context.length}）</summary>
+          ${entry.context
+            .map(
+              (item) => `
+                <div class="context-item">
+                  <strong>${escapeHtml(item.filename || "课程资料")} #${escapeHtml(item.chunk_index ?? "-")}</strong>
+                  <p>${escapeHtml(item.text || "")}</p>
+                </div>
+              `,
+            )
+            .join("")}
+        </details>
+      `
+      : "";
+  return `
+    <div class="qa-turn qa-turn-user">
+      <div class="qa-bubble qa-bubble-user">
+        <div>${escapeHtml(entry.question || "")}</div>
+      </div>
+      <div class="qa-avatar user-avatar"></div>
+    </div>
+    <div class="qa-turn qa-turn-assistant">
+      <div class="qa-avatar assistant-avatar">AI</div>
+      <div class="qa-assistant-wrap">
+        <span class="qa-speaker">AI助教 · ${escapeHtml(modeLabel)}</span>
+        <div class="qa-bubble qa-bubble-assistant">
+          <div class="qa-answer">${markdownToHtml(entry.answer || "")}</div>
+          ${sources}
+        </div>
+      </div>
+    </div>
+  `;
 }
 
 function renderResult(result) {
@@ -187,24 +422,204 @@ function showResource(index) {
 
   container.innerHTML = `
     <p><strong>${escapeHtml(resource.agent)}</strong>${resource.modality ? ` · <span class="resource-modality">${escapeHtml(resource.modality)}</span>` : ""}</p>
-    <div id="resourceMedia"></div>
-    ${markdownToHtml(resource.content || "")}
+    ${resource.type === "quiz" && Array.isArray(resource.quiz) ? "" : markdownToHtml(resource.content || "")}
+    ${resource.type === "quiz" && Array.isArray(resource.quiz) ? renderQuizForm(resource.quiz) : ""}
   `;
-  renderResourceMedia(resource, document.getElementById("resourceMedia"));
+  if (resource.type === "quiz" && Array.isArray(resource.quiz)) {
+    bindQuizForm(resource);
+  }
   typesetMath(container);
 }
 
-function renderResourceMedia(resource, container) {
-  if (!container || !resource?.media) return;
+function renderQuizForm(quiz, level = 1) {
+  return `
+    <section class="quiz-panel" data-quiz-level="${escapeHtml(level)}">
+      <div class="quiz-heading">
+        <h2>在线答题</h2>
+        <span>第 ${escapeHtml(level)} 套 · ${quiz.length} 题</span>
+      </div>
+      <div class="quiz-list">
+        ${quiz.map(renderQuizItem).join("")}
+      </div>
+      <button id="submitQuizBtn" type="button" class="primary-btn quiz-submit">提交测验</button>
+      <div id="quizResult" class="quiz-result hidden"></div>
+    </section>
+  `;
+}
 
-  if (resource.media.kind === "html_animation" && resource.media.html) {
-    const frame = document.createElement("iframe");
-    frame.className = "animation-frame";
-    frame.title = resource.media.label || "教学动画";
-    frame.loading = "lazy";
-    frame.sandbox = "allow-scripts";
-    frame.srcdoc = resource.media.html;
-    container.appendChild(frame);
+function renderQuizItem(item, index) {
+  const name = `quiz_${escapeHtml(item.id)}`;
+  const options = Array.isArray(item.options) ? item.options : [];
+  const input =
+    item.type === "single_choice" || item.type === "true_false"
+      ? options
+          .map(
+            (option, optionIndex) => `
+              <label class="quiz-option">
+                <input type="radio" name="${name}" value="${String.fromCharCode(65 + optionIndex)}" />
+                <span>${String.fromCharCode(65 + optionIndex)}. ${escapeHtml(cleanOptionText(option))}</span>
+              </label>
+            `,
+          )
+          .join("")
+      : item.type === "multiple_choice"
+        ? options
+            .map(
+              (option, optionIndex) => `
+                <label class="quiz-option">
+                  <input type="checkbox" name="${name}" value="${String.fromCharCode(65 + optionIndex)}" />
+                  <span>${String.fromCharCode(65 + optionIndex)}. ${escapeHtml(cleanOptionText(option))}</span>
+                </label>
+              `,
+            )
+            .join("")
+        : `<textarea class="quiz-text-answer" name="${name}" rows="3" placeholder="请输入你的答案"></textarea>`;
+
+  return `
+    <article class="quiz-item" data-question-id="${escapeHtml(item.id)}" data-type="${escapeHtml(item.type)}">
+      <div class="quiz-meta">
+        <span>${index + 1}. ${escapeHtml(item.type_label || "题目")}</span>
+        <span>${escapeHtml(item.difficulty || "")}</span>
+        <span>${escapeHtml(item.score || 0)} 分</span>
+      </div>
+      <p>${renderInline(item.question || "")}</p>
+      <div class="quiz-inputs">${input}</div>
+    </article>
+  `;
+}
+
+function cleanOptionText(option) {
+  return String(option || "")
+    .replace(/^\s*[\(（]?[A-Ga-g][\)）]?\s*(?:[.．、:：]\s*)?/, "")
+    .trim();
+}
+
+function bindQuizForm(resource) {
+  const button = document.getElementById("submitQuizBtn");
+  if (!button) return;
+  button.addEventListener("click", async () => {
+    if (!requireLogin()) return;
+    button.disabled = true;
+    button.textContent = "评分中";
+    try {
+      const result = await postJson("/api/quiz/submit", {
+        course: document.getElementById("course").value.trim() || "机器学习",
+        quiz: resource.quiz,
+        answers: collectQuizAnswers(resource.quiz),
+      });
+      renderQuizResult(result, resource);
+      dashboardLoaded = false;
+    } catch (error) {
+      document.getElementById("quizResult").classList.remove("hidden");
+      document.getElementById("quizResult").innerHTML = `<strong>${escapeHtml(error.message)}</strong>`;
+    } finally {
+      button.disabled = false;
+      button.textContent = "重新提交";
+    }
+  });
+}
+
+function collectQuizAnswers(quiz) {
+  const answers = {};
+  quiz.forEach((item) => {
+    const selector = `[name="quiz_${CSS.escape(item.id)}"]`;
+    if (item.type === "multiple_choice") {
+      answers[item.id] = Array.from(document.querySelectorAll(`${selector}:checked`))
+        .map((input) => input.value)
+        .sort()
+        .join("");
+    } else if (item.type === "single_choice" || item.type === "true_false") {
+      answers[item.id] = document.querySelector(`${selector}:checked`)?.value || "";
+    } else {
+      answers[item.id] = document.querySelector(selector)?.value || "";
+    }
+  });
+  return answers;
+}
+
+function renderQuizResult(result, resource) {
+  const container = document.getElementById("quizResult");
+  if (!container) return;
+  const passed = Number(result.percent || 0) >= 90;
+  container.classList.remove("hidden");
+  container.innerHTML = `
+    <div class="quiz-settlement">
+      <div>
+        <span class="settlement-label">本次测试得分</span>
+        <strong>${escapeHtml(result.percent)} 分</strong>
+        <p>${escapeHtml(result.score)} / ${escapeHtml(result.total_score)}，答对 ${escapeHtml(result.correct_count)} / ${escapeHtml(result.total_count)}</p>
+      </div>
+      <div class="settlement-badge ${passed ? "pass" : "retry"}">${passed ? "达标" : "需巩固"}</div>
+    </div>
+    <p>${escapeHtml(result.summary || "")}</p>
+    <div class="settlement-actions">
+      <button id="toggleQuizReviewBtn" type="button" class="secondary-btn">查看答案与错题分析</button>
+      ${
+        passed
+          ? '<button id="nextQuizBtn" type="button" class="primary-btn">做下一套测试题</button>'
+          : '<button id="redoQuizBtn" type="button" class="primary-btn">重新作答</button>'
+      }
+    </div>
+    <div id="quizReviewList" class="quiz-review-list hidden">
+      <h3>答案与解析</h3>
+      ${(result.details || [])
+        .map(
+          (item) => `
+            <div class="quiz-review ${item.is_correct ? "correct" : "wrong"}">
+              <strong>${escapeHtml(item.index)}. ${escapeHtml(item.is_correct ? "正确" : "需复盘")} · ${escapeHtml(item.knowledge_point || item.type_label)}</strong>
+              <p>你的答案：${escapeHtml(item.student_answer || "未作答")}</p>
+              <p>参考答案：${escapeHtml(item.correct_answer)}</p>
+              <p>${escapeHtml(item.explanation || "")}</p>
+            </div>
+          `,
+        )
+        .join("")}
+    </div>
+  `;
+  document.getElementById("toggleQuizReviewBtn")?.addEventListener("click", () => {
+    document.getElementById("quizReviewList")?.classList.toggle("hidden");
+  });
+  document.getElementById("redoQuizBtn")?.addEventListener("click", redoQuiz);
+  document.getElementById("nextQuizBtn")?.addEventListener("click", () => loadNextQuiz(resource));
+}
+
+function redoQuiz() {
+  document.querySelectorAll(".quiz-panel input").forEach((input) => {
+    input.checked = false;
+  });
+  document.querySelectorAll(".quiz-panel textarea").forEach((textarea) => {
+    textarea.value = "";
+  });
+  document.getElementById("quizResult")?.classList.add("hidden");
+  document.querySelector(".quiz-panel")?.scrollIntoView({behavior: "smooth", block: "start"});
+}
+
+async function loadNextQuiz(resource) {
+  const nextLevel = Number(resource.quiz_level || 1) + 1;
+  const button = document.getElementById("nextQuizBtn");
+  if (button) {
+    button.disabled = true;
+    button.textContent = "生成中";
+  }
+  try {
+    const result = await postJson("/api/quiz/next", {
+      course: document.getElementById("course").value.trim() || "机器学习",
+      level: nextLevel,
+    });
+    resource.quiz = result.quiz || [];
+    resource.quiz_level = result.level || nextLevel;
+    const panel = document.querySelector(".quiz-panel");
+    if (panel) {
+      panel.outerHTML = renderQuizForm(resource.quiz, resource.quiz_level);
+      bindQuizForm(resource);
+      document.querySelector(".quiz-panel")?.scrollIntoView({behavior: "smooth", block: "start"});
+    }
+  } catch (error) {
+    const resultBox = document.getElementById("quizResult");
+    if (resultBox) {
+      resultBox.classList.remove("hidden");
+      resultBox.innerHTML = `<strong>${escapeHtml(error.message)}</strong>`;
+    }
   }
 }
 
@@ -251,6 +666,7 @@ function switchView(viewId) {
 }
 
 async function loadDashboard() {
+  if (!requireLogin()) return;
   setDashboardStatus("running", "加载中");
   try {
     const [summary, files, profiles, resources, paths, events] = await Promise.all([
@@ -426,6 +842,7 @@ function renderEventsTable(items) {
 }
 
 async function searchDashboardKnowledge() {
+  if (!requireLogin()) return;
   const query = document.getElementById("dashboardSearchInput").value.trim();
   const container = document.getElementById("dashboardSearchResults");
   if (!query) {
@@ -458,7 +875,7 @@ async function searchDashboardKnowledge() {
 async function postJson(url, payload) {
   const response = await fetch(url, {
     method: "POST",
-    headers: {"Content-Type": "application/json"},
+    headers: authHeaders(true),
     body: JSON.stringify(payload),
   });
   if (!response.ok) {
@@ -469,12 +886,139 @@ async function postJson(url, payload) {
 }
 
 async function getJson(url) {
-  const response = await fetch(url);
+  const response = await fetch(url, {
+    headers: authHeaders(false),
+  });
   if (!response.ok) {
     const detail = await response.json().catch(() => ({}));
     throw new Error(detail.detail || `请求失败：${response.status}`);
   }
   return response.json();
+}
+
+async function login() {
+  await authenticate("/api/auth/login", {
+    username: authUsername.value.trim(),
+    password: authPassword.value,
+  });
+}
+
+async function register() {
+  await authenticate("/api/auth/register", {
+    username: authUsername.value.trim(),
+    password: authPassword.value,
+    student_id: authStudentId.value.trim() || authUsername.value.trim(),
+  });
+}
+
+async function authenticate(url, payload) {
+  try {
+    const result = await postJson(url, payload);
+    setAuth(result.access_token, result.user);
+    setStatus("done", "已登录");
+    dashboardLoaded = false;
+    closeAuthModal();
+    accountMenu.classList.add("hidden");
+  } catch (error) {
+    setStatus("error", "登录失败");
+    authInfo.textContent = error.message;
+  }
+}
+
+async function restoreSession() {
+  if (!authToken) {
+    updateAuthView();
+    return;
+  }
+  try {
+    currentUser = await getJson("/api/auth/me");
+  } catch {
+    authToken = "";
+    currentUser = null;
+    localStorage.removeItem("learning_auth_token");
+  }
+  updateAuthView();
+}
+
+function logout() {
+  authToken = "";
+  currentUser = null;
+  localStorage.removeItem("learning_auth_token");
+  dashboardLoaded = false;
+  accountMenu.classList.add("hidden");
+  updateAuthView();
+  setStatus("", "待生成");
+  setDashboardStatus("", "待刷新");
+}
+
+function setAuth(token, user) {
+  authToken = token || "";
+  currentUser = user || null;
+  if (authToken) {
+    localStorage.setItem("learning_auth_token", authToken);
+  }
+  updateAuthView();
+}
+
+function updateAuthView() {
+  const loggedIn = Boolean(currentUser && authToken);
+  if (loggedIn) {
+    accountTrigger.textContent = currentUser.username;
+    accountTrigger.classList.add("logged-in");
+    accountName.textContent = currentUser.username;
+    accountStudentId.textContent = `学生 ID：${currentUser.student_id}`;
+    authInfo.textContent = `${currentUser.username} · ${currentUser.student_id}`;
+    authStudentId.value = currentUser.student_id;
+  } else {
+    accountTrigger.textContent = "登录";
+    accountTrigger.classList.remove("logged-in");
+    accountName.textContent = "未登录";
+    accountStudentId.textContent = "请先登录";
+    authInfo.textContent = "登录后生成和查看你的个性化学习数据。";
+    accountMenu.classList.add("hidden");
+  }
+  runBtn.disabled = !loggedIn;
+  refreshDashboardBtn.disabled = !loggedIn;
+  askBtn.disabled = !loggedIn;
+}
+
+function requireLogin() {
+  if (authToken && currentUser) return true;
+  setStatus("error", "请先登录");
+  setDashboardStatus("error", "请先登录");
+  openAuthModal();
+  authInfo.textContent = "请先注册或登录学生账号。";
+  return false;
+}
+
+function toggleAccount() {
+  if (currentUser && authToken) {
+    accountMenu.classList.toggle("hidden");
+    return;
+  }
+  openAuthModal();
+}
+
+function openAuthModal() {
+  authTitle.textContent = "登录";
+  authModal.classList.remove("hidden");
+  accountMenu.classList.add("hidden");
+  authUsername.focus();
+}
+
+function closeAuthModal() {
+  authModal.classList.add("hidden");
+}
+
+function authHeaders(withJson) {
+  const headers = {};
+  if (withJson) {
+    headers["Content-Type"] = "application/json";
+  }
+  if (authToken) {
+    headers.Authorization = `Bearer ${authToken}`;
+  }
+  return headers;
 }
 
 function setStatus(type, text) {
@@ -511,10 +1055,6 @@ function markdownToHtml(markdown) {
         i += 1;
       }
       i += 1;
-      if (lang.toLowerCase() === "mermaid" && code.some((item) => item.trim() === "mindmap")) {
-        html.push(renderMindmap(code.join("\n")));
-        continue;
-      }
       const cls = lang ? ` class="language-${escapeHtml(lang)}"` : "";
       codeBlocks.push(`<pre><code${cls}>${escapeHtml(code.join("\n"))}</code></pre>`);
       html.push(codeBlocks[codeBlocks.length - 1]);
@@ -592,67 +1132,6 @@ function markdownToHtml(markdown) {
   }
 
   return html.join("");
-}
-
-function renderMindmap(source) {
-  const lines = String(source || "")
-    .split("\n")
-    .filter((line) => line.trim() && line.trim() !== "mindmap");
-  const stack = [];
-  let root = null;
-
-  lines.forEach((line) => {
-    const indent = line.match(/^\s*/)?.[0].length || 0;
-    const node = {label: cleanMindmapLabel(line.trim()), children: []};
-    while (stack.length && stack[stack.length - 1].indent >= indent) {
-      stack.pop();
-    }
-    if (!stack.length) {
-      root = node;
-    } else {
-      stack[stack.length - 1].node.children.push(node);
-    }
-    stack.push({indent, node});
-  });
-
-  if (!root) {
-    return `<pre><code>${escapeHtml(source)}</code></pre>`;
-  }
-
-  return `
-    <div class="mindmap-view">
-      <div class="mindmap-root">${escapeHtml(root.label)}</div>
-      ${renderMindmapChildren(root.children)}
-    </div>
-  `;
-}
-
-function renderMindmapChildren(children) {
-  if (!children.length) return "";
-  return `
-    <ul>
-      ${children
-        .map(
-          (child) => `
-            <li>
-              <span>${escapeHtml(child.label)}</span>
-              ${renderMindmapChildren(child.children)}
-            </li>
-          `,
-        )
-        .join("")}
-    </ul>
-  `;
-}
-
-function cleanMindmapLabel(label) {
-  return label
-    .replace(/^root\s*/i, "")
-    .replace(/^\(\(/, "")
-    .replace(/\)\)$/, "")
-    .replace(/^\[/, "")
-    .replace(/\]$/, "")
-    .trim();
 }
 
 function isBlockStart(lines, index) {

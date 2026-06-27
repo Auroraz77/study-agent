@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-from html import escape
 from typing import Any
 
 from langgraph.graph import END, START, StateGraph
@@ -28,30 +27,6 @@ RESOURCE_TASKS = [
         "node": "quiz_agent",
         "modality": "assessment",
         "boundary": "只负责生成分层练习、答案和解析；不得展开课程长文讲解或给出完整项目代码。",
-    },
-    {
-        "type": "mindmap",
-        "title": "知识点思维导图",
-        "role": "思维导图智能体",
-        "node": "mindmap_agent",
-        "modality": "diagram",
-        "boundary": "只负责输出 Mermaid mindmap 层级关系；不得包含 Python 案例、练习题或长段解释。",
-    },
-    {
-        "type": "reading_pack",
-        "title": "拓展阅读材料",
-        "role": "拓展阅读智能体",
-        "node": "reading_agent",
-        "modality": "reading",
-        "boundary": "只负责阅读路线、关键词、资料摘要和阅读任务；不得生成代码案例或测验题。",
-    },
-    {
-        "type": "multimodal_animation",
-        "title": "多模态教学动画",
-        "role": "多模态教学智能体",
-        "node": "multimodal_agent",
-        "modality": "interactive_animation",
-        "boundary": "负责生成教学分镜、旁白文案和可播放动画；不得替代讲解文档或代码实操。",
     },
     {
         "type": "code_case",
@@ -94,9 +69,6 @@ class LearningAgentGraph:
         builder.add_node("supervisor_agent", self._supervisor_agent)
         builder.add_node("explanation_agent", self._explanation_agent)
         builder.add_node("quiz_agent", self._quiz_agent)
-        builder.add_node("mindmap_agent", self._mindmap_agent)
-        builder.add_node("reading_agent", self._reading_agent)
-        builder.add_node("multimodal_agent", self._multimodal_agent)
         builder.add_node("code_agent", self._code_agent)
         builder.add_node("planner_agent", self._planner_agent)
         builder.add_node("summary_agent", self._summary_agent)
@@ -110,17 +82,11 @@ class LearningAgentGraph:
             [
                 "explanation_agent",
                 "quiz_agent",
-                "mindmap_agent",
-                "reading_agent",
-                "multimodal_agent",
                 "code_agent",
             ],
         )
         builder.add_edge("explanation_agent", "planner_agent")
         builder.add_edge("quiz_agent", "planner_agent")
-        builder.add_edge("mindmap_agent", "planner_agent")
-        builder.add_edge("reading_agent", "planner_agent")
-        builder.add_edge("multimodal_agent", "planner_agent")
         builder.add_edge("code_agent", "planner_agent")
         builder.add_edge("planner_agent", "summary_agent")
         builder.add_edge("summary_agent", END)
@@ -192,15 +158,6 @@ class LearningAgentGraph:
     def _quiz_agent(self, state: dict[str, Any]) -> dict[str, Any]:
         return self._resource_worker(state)
 
-    def _mindmap_agent(self, state: dict[str, Any]) -> dict[str, Any]:
-        return self._resource_worker(state)
-
-    def _reading_agent(self, state: dict[str, Any]) -> dict[str, Any]:
-        return self._resource_worker(state)
-
-    def _multimodal_agent(self, state: dict[str, Any]) -> dict[str, Any]:
-        return self._resource_worker(state)
-
     def _code_agent(self, state: dict[str, Any]) -> dict[str, Any]:
         return self._resource_worker(state)
 
@@ -219,10 +176,12 @@ class LearningAgentGraph:
             "modality": task.get("modality"),
             "content": content,
         }
-        if task["type"] == "multimodal_animation":
-            resource["media"] = _build_animation_media(
-                course=state.get("course", "课程"),
+        if task["type"] == "quiz":
+            resource["quiz"] = self._generate_quiz_items(
+                course=state.get("course", ""),
                 profile=state.get("student_profile", {}),
+                context=state.get("course_context", []),
+                user_input=state.get("user_input", ""),
             )
         return {
             "resources": [resource]
@@ -233,10 +192,7 @@ class LearningAgentGraph:
             "title": f"{state.get('course', '课程')}个性化学习路径",
             "stages": [
                 {"name": "诊断", "goal": "明确基础与薄弱点", "resources": ["个性化讲解文档"]},
-                {"name": "理解", "goal": "掌握核心概念", "resources": ["知识点思维导图"]},
                 {"name": "练习", "goal": "通过题目巩固", "resources": ["个性化练习题"]},
-                {"name": "拓展", "goal": "通过阅读建立知识外延", "resources": ["拓展阅读材料"]},
-                {"name": "视听", "goal": "用动画建立直观理解", "resources": ["多模态教学动画"]},
                 {"name": "实践", "goal": "完成代码案例", "resources": ["代码实操案例"]},
             ],
         }
@@ -267,7 +223,7 @@ class LearningAgentGraph:
             f"薄弱点：{', '.join(profile.get('weaknesses', [])) or '待诊断'}。\n\n"
             f"本次生成 {len(resources)} 类资源："
             f"{'、'.join(resource['title'] for resource in resources)}。\n"
-            "资源由画像、检索、监督调度、讲解、题目、思维导图、拓展阅读、多模态教学、代码实操和路径规划等智能体协同完成。\n"
+            "资源由画像、检索、监督调度、讲解、题目、代码实操和路径规划等智能体协同完成。\n"
             f"学习路径：{path.get('title', '个性化学习路径')}。"
         )
         return {"final_answer": answer}
@@ -298,6 +254,46 @@ class LearningAgentGraph:
             return _mock_resource(task["type"], task["title"], profile, context)
         return self.llm.chat(system, user, temperature=0.5)
 
+    def _generate_quiz_items(
+        self,
+        course: str,
+        profile: dict[str, Any],
+        context: list[dict[str, Any]],
+        user_input: str,
+        level: int = 1,
+    ) -> list[dict[str, Any]]:
+        fallback = {
+            "quiz": _build_quiz_items(
+                profile=profile,
+                user_input=f"{course}\n{user_input}",
+                level=level,
+            )
+        }
+        if self.llm.is_mock:
+            return fallback["quiz"]
+
+        system = (
+            "你是题目生成智能体，只负责生成可在线作答、可自动评分的结构化练习题。"
+            "请严格输出 JSON，不要输出 Markdown。JSON 格式为："
+            "{\"quiz\":[{\"id\":\"q1\",\"type\":\"single_choice|multiple_choice|true_false|short_answer\","
+            "\"type_label\":\"单选题\",\"difficulty\":\"入门|基础|进阶|挑战\","
+            "\"question\":\"题干\",\"options\":[\"选项1\"],\"answer\":\"A 或 ABC 或文本答案\","
+            "\"keywords\":[\"关键词\"],\"explanation\":\"解析\",\"knowledge_point\":\"知识点\",\"score\":15}]}"
+            "必须生成 6 题，题型包含单选、多选、判断、简答、应用分析、代码/SQL阅读。"
+            "题目必须紧扣课程名、学生需求和课程资料，不得沿用其他课程题目。"
+        )
+        user = (
+            f"课程：{course}\n"
+            f"难度轮次：第 {level} 套\n"
+            f"学生画像：{json.dumps(profile, ensure_ascii=False)}\n"
+            f"学生需求：{user_input}\n"
+            f"课程资料片段：{_format_context(context)}"
+        )
+        data = self.llm.chat_json(system, user, fallback=fallback, temperature=0.35)
+        quiz = data.get("quiz") if isinstance(data, dict) else None
+        normalized = _normalize_quiz_items(quiz)
+        return normalized or fallback["quiz"]
+
 
 def _format_context(context: list[dict[str, Any]]) -> str:
     if not context:
@@ -318,18 +314,6 @@ def _resource_contract(resource_type: str) -> str:
             "输出至少包含单选题、多选题、判断题、简答题、应用题和代码阅读题；"
             "每题标注难度、考查点、答案和解析。"
         ),
-        "mindmap": (
-            "只输出一个 Mermaid mindmap fenced code block。节点使用课程知识点短语，"
-            "禁止出现 Python、sklearn、代码、题目、答案等内容。"
-        ),
-        "reading_pack": (
-            "输出结构固定为：阅读路线、核心关键词、推荐阅读清单、每篇阅读目的、读后产出。"
-            "不要生成练习题或代码。"
-        ),
-        "multimodal_animation": (
-            "输出结构固定为：动画目标、分镜脚本、旁白文案、交互提示。"
-            "动画本体由系统工具生成，不要输出 HTML 或 Python 代码。"
-        ),
         "code_case": (
             "输出结构固定为：实操目标、运行环境、任务步骤、完整代码、预期输出、改造挑战。"
             "概念解释不超过三句话。"
@@ -338,117 +322,281 @@ def _resource_contract(resource_type: str) -> str:
     return contracts.get(resource_type, "")
 
 
-def _build_animation_media(course: str, profile: dict[str, Any]) -> dict[str, str]:
-    weaknesses = "、".join(profile.get("weaknesses", ["核心概念"]))
-    title = escape(f"{course} 动画演示")
-    subtitle = escape(f"围绕薄弱点：{weaknesses}")
-    html = f"""
-<!doctype html>
-<html lang="zh-CN">
-<head>
-<meta charset="UTF-8" />
-<style>
-  body {{
-    margin: 0;
-    min-height: 100vh;
-    display: grid;
-    place-items: center;
-    background: #f8fafc;
-    color: #172033;
-    font-family: "Microsoft YaHei", Arial, sans-serif;
-  }}
-  .scene {{
-    width: min(900px, 96vw);
-    padding: 24px;
-  }}
-  h1 {{ margin: 0 0 6px; font-size: 24px; }}
-  p {{ margin: 0 0 18px; color: #667085; }}
-  .stage {{
-    position: relative;
-    height: 260px;
-    border: 1px solid #d9dee7;
-    border-radius: 8px;
-    background:
-      linear-gradient(90deg, transparent 49.5%, #94a3b8 49.5%, #94a3b8 50.5%, transparent 50.5%),
-      linear-gradient(180deg, transparent 49.5%, #94a3b8 49.5%, #94a3b8 50.5%, transparent 50.5%),
-      #fff;
-    overflow: hidden;
-  }}
-  .curve {{
-    position: absolute;
-    left: 8%;
-    right: 8%;
-    top: 52%;
-    height: 4px;
-    border-radius: 999px;
-    background: #2563eb;
-    transform: rotate(-18deg);
-  }}
-  .point {{
-    position: absolute;
-    width: 18px;
-    height: 18px;
-    border-radius: 50%;
-    animation: pulse 2.4s ease-in-out infinite;
-  }}
-  .positive {{ background: #0f766e; }}
-  .negative {{ background: #be123c; }}
-  .p1 {{ left: 22%; top: 66%; animation-delay: .1s; }}
-  .p2 {{ left: 32%; top: 58%; animation-delay: .4s; }}
-  .p3 {{ left: 43%; top: 50%; animation-delay: .7s; }}
-  .p4 {{ left: 58%; top: 40%; animation-delay: 1s; }}
-  .p5 {{ left: 70%; top: 32%; animation-delay: 1.3s; }}
-  .p6 {{ left: 76%; top: 45%; animation-delay: 1.6s; }}
-  .caption {{
-    position: absolute;
-    left: 24px;
-    bottom: 20px;
-    padding: 10px 12px;
-    border-radius: 8px;
-    background: rgba(255, 255, 255, .92);
-    border: 1px solid #d9dee7;
-    font-weight: 700;
-  }}
-  .formula {{
-    position: absolute;
-    right: 22px;
-    top: 18px;
-    padding: 10px 12px;
-    border-radius: 8px;
-    background: #eef2ff;
-    color: #1d4ed8;
-    font-weight: 800;
-  }}
-  @keyframes pulse {{
-    0%, 100% {{ transform: scale(1); opacity: .62; }}
-    50% {{ transform: scale(1.35); opacity: 1; }}
-  }}
-</style>
-</head>
-<body>
-  <main class="scene">
-    <h1>{title}</h1>
-    <p>{subtitle}</p>
-    <section class="stage" aria-label="分类边界动画">
-      <div class="curve"></div>
-      <span class="point negative p1"></span>
-      <span class="point negative p2"></span>
-      <span class="point negative p3"></span>
-      <span class="point positive p4"></span>
-      <span class="point positive p5"></span>
-      <span class="point positive p6"></span>
-      <div class="formula">P(y=1|x)=sigmoid(w·x+b)</div>
-      <div class="caption">数据点被决策边界分开，模型输出属于正类的概率。</div>
-    </section>
-  </main>
-</body>
-</html>
-""".strip()
-    return {
-        "kind": "html_animation",
-        "label": "可播放教学动画",
-        "html": html,
+def _normalize_quiz_items(raw_items: Any) -> list[dict[str, Any]]:
+    if not isinstance(raw_items, list):
+        return []
+    allowed_types = {"single_choice", "multiple_choice", "true_false", "short_answer"}
+    normalized: list[dict[str, Any]] = []
+    for index, item in enumerate(raw_items[:6], start=1):
+        if not isinstance(item, dict):
+            continue
+        item_type = item.get("type") if item.get("type") in allowed_types else "short_answer"
+        options = item.get("options") if isinstance(item.get("options"), list) else []
+        if item_type in {"single_choice", "multiple_choice", "true_false"} and not options:
+            continue
+        normalized.append(
+            {
+                "id": str(item.get("id") or f"q{index}"),
+                "type": item_type,
+                "type_label": str(item.get("type_label") or _quiz_type_label(item_type)),
+                "difficulty": str(item.get("difficulty") or "基础"),
+                "question": str(item.get("question") or ""),
+                "options": [str(option) for option in options],
+                "answer": str(item.get("answer") or ""),
+                "keywords": [str(keyword) for keyword in item.get("keywords", [])]
+                if isinstance(item.get("keywords"), list)
+                else [],
+                "explanation": str(item.get("explanation") or ""),
+                "knowledge_point": str(item.get("knowledge_point") or ""),
+                "score": int(item.get("score") or 15),
+            }
+        )
+    return normalized if len(normalized) >= 4 else []
+
+
+def _quiz_type_label(item_type: str) -> str:
+    labels = {
+        "single_choice": "单选题",
+        "multiple_choice": "多选题",
+        "true_false": "判断题",
+        "short_answer": "简答题",
     }
+    return labels.get(item_type, "简答题")
+
+
+def _big_data_quiz_items(level: int = 1) -> list[dict[str, Any]]:
+    label = "入门" if level == 1 else ("挑战" if level == 2 else "高阶挑战")
+    return [
+        {
+            "id": f"bd_l{level}_q1",
+            "type": "single_choice",
+            "type_label": "单选题",
+            "difficulty": label,
+            "question": "在 Hadoop 生态中，HDFS 最核心的作用是什么？",
+            "options": ["分布式文件存储", "关系型事务处理", "前端页面渲染", "模型参数训练"],
+            "answer": "A",
+            "explanation": "HDFS 负责把大文件切分为块并分布式存储在集群节点上，适合高吞吐批处理场景。",
+            "knowledge_point": "HDFS 分布式存储",
+            "score": 15,
+        },
+        {
+            "id": f"bd_l{level}_q2",
+            "type": "multiple_choice",
+            "type_label": "多选题",
+            "difficulty": "基础" if level == 1 else label,
+            "question": "设计离线大数据处理链路时，以下哪些组件或环节常见？",
+            "options": ["数据采集", "HDFS/对象存储", "Spark/Hive 计算", "浏览器 CSS 动画"],
+            "answer": "ABC",
+            "explanation": "典型离线链路包含采集、存储、计算和结果服务；CSS 动画不属于大数据处理链路核心环节。",
+            "knowledge_point": "离线数据处理架构",
+            "score": 20,
+        },
+        {
+            "id": f"bd_l{level}_q3",
+            "type": "true_false",
+            "type_label": "判断题",
+            "difficulty": "基础",
+            "question": "YARN 的主要职责是进行集群资源管理和任务调度。",
+            "options": ["正确", "错误"],
+            "answer": "A",
+            "explanation": "YARN 负责统一管理 CPU、内存等资源，并为 MapReduce、Spark 等计算任务分配资源。",
+            "knowledge_point": "YARN 资源调度",
+            "score": 15,
+        },
+        {
+            "id": f"bd_l{level}_q4",
+            "type": "short_answer",
+            "type_label": "简答题",
+            "difficulty": "进阶",
+            "question": "请简要说明 ODS、DWD、DWS、ADS 四层数仓分层各自的作用。",
+            "answer": "ODS 保留原始数据，DWD 做明细清洗和规范化，DWS 面向主题进行汇总，ADS 面向报表和应用输出指标结果。",
+            "keywords": ["ODS", "DWD", "DWS", "ADS", "原始", "明细", "汇总", "应用"],
+            "explanation": "这道题考查数仓分层的边界，重点是能说清每一层的数据粒度和服务对象。",
+            "knowledge_point": "数据仓库分层",
+            "score": 20,
+        },
+        {
+            "id": f"bd_l{level}_q5",
+            "type": "short_answer",
+            "type_label": "应用分析题",
+            "difficulty": "进阶" if level == 1 else label,
+            "question": "如果要统计电商网站每天的用户访问量、下单量和支付转化率，你会如何设计从日志采集到报表输出的链路？",
+            "answer": "可按采集日志、写入 HDFS 或消息队列、清洗到 ODS/DWD、用 Spark 或 Hive 聚合到 DWS、最终生成 ADS 指标表供报表查询的流程设计。",
+            "keywords": ["采集", "HDFS", "清洗", "ODS", "DWD", "Spark", "Hive", "DWS", "ADS", "报表"],
+            "explanation": "应用题重点看是否能把业务指标拆成采集、存储、计算、分层建模和服务输出几个步骤。",
+            "knowledge_point": "业务场景架构设计",
+            "score": 15,
+        },
+        {
+            "id": f"bd_l{level}_q6",
+            "type": "short_answer",
+            "type_label": "代码/SQL阅读题",
+            "difficulty": "挑战",
+            "question": "阅读 SQL：`SELECT dt, count(distinct user_id) AS uv FROM dwd_log GROUP BY dt;` 这段 SQL 计算的是什么指标？它通常适合落在哪一层结果表？",
+            "answer": "它按日期统计去重用户数 UV，通常可作为 DWS 汇总指标或进一步加工到 ADS 报表指标表。",
+            "keywords": ["dt", "count distinct", "user_id", "UV", "DWS", "ADS"],
+            "explanation": "这道题把 SQL 聚合逻辑和数仓分层结合起来，考查能否从代码读出业务指标。",
+            "knowledge_point": "SQL 聚合与指标层",
+            "score": 15,
+        },
+    ]
+
+
+def _build_quiz_items(profile: dict[str, Any], user_input: str, level: int = 1) -> list[dict[str, Any]]:
+    topic_text = f"{profile.get('course', '')} {user_input}".lower()
+    if any(keyword in topic_text for keyword in ["大数据", "hadoop", "hdfs", "spark", "yarn", "数仓"]):
+        return _big_data_quiz_items(level=level)
+    weakness = "、".join(profile.get("weaknesses", ["模型评估"]))
+    if level >= 2:
+        label = "挑战" if level == 2 else "高阶挑战"
+        return [
+            {
+                "id": f"l{level}_q1",
+                "type": "single_choice",
+                "type_label": "单选题",
+                "difficulty": label,
+                "question": "在类别极不平衡的二分类任务中，单看 Accuracy 可能产生什么问题？",
+                "options": ["无法训练模型", "掩盖少数类识别差的问题", "一定导致过拟合", "让召回率恒等于 1"],
+                "answer": "B",
+                "explanation": "类别不平衡时，模型即使总预测多数类也可能有较高 Accuracy，但少数类召回很差。",
+                "knowledge_point": "类别不平衡与指标选择",
+                "score": 15,
+            },
+            {
+                "id": f"l{level}_q2",
+                "type": "multiple_choice",
+                "type_label": "多选题",
+                "difficulty": label,
+                "question": "想提升少数类召回率时，可以考虑哪些方向？",
+                "options": ["调整分类阈值", "重采样或类别权重", "增加相关特征", "删除所有少数类样本"],
+                "answer": "ABC",
+                "explanation": "阈值、样本分布和特征质量都会影响少数类召回；删除少数类会让问题更严重。",
+                "knowledge_point": "召回率优化",
+                "score": 20,
+            },
+            {
+                "id": f"l{level}_q3",
+                "type": "true_false",
+                "type_label": "判断题",
+                "difficulty": label,
+                "question": "F1-score 是 Precision 和 Recall 的调和平均，因此适合在二者都重要时使用。",
+                "options": ["正确", "错误"],
+                "answer": "A",
+                "explanation": "F1 同时考虑查准和查全，适合 Precision 与 Recall 都需要关注的场景。",
+                "knowledge_point": "F1-score",
+                "score": 15,
+            },
+            {
+                "id": f"l{level}_q4",
+                "type": "short_answer",
+                "type_label": "简答题",
+                "difficulty": label,
+                "question": "为什么降低分类阈值可能提高 Recall，但可能降低 Precision？",
+                "answer": "降低阈值会让更多样本被判为正类，找回更多真实正类，但也可能带来更多误报。",
+                "keywords": ["阈值", "正类", "找回", "误报", "Precision"],
+                "explanation": "核心是理解阈值移动会改变正类判定数量，从而影响 FP 和 FN。",
+                "knowledge_point": "阈值与指标权衡",
+                "score": 20,
+            },
+            {
+                "id": f"l{level}_q5",
+                "type": "short_answer",
+                "type_label": "应用分析题",
+                "difficulty": label,
+                "question": f"针对“{weakness}”这个短板，请设计一个复盘步骤，说明先看哪个指标、再检查什么数据问题。",
+                "answer": "先看混淆矩阵和 Recall/Precision，再检查类别分布、错分样本、阈值和特征质量。",
+                "keywords": ["混淆矩阵", "Recall", "Precision", "类别分布", "错分样本", "阈值", "特征"],
+                "explanation": "高阶题更关注排查路径，而不是单个指标定义。",
+                "knowledge_point": "模型诊断流程",
+                "score": 15,
+            },
+            {
+                "id": f"l{level}_q6",
+                "type": "short_answer",
+                "type_label": "代码阅读题",
+                "difficulty": label,
+                "question": "如果你把 `predict_proba` 的正类阈值从 0.5 改为 0.3，分类报告中哪些指标最可能发生变化？",
+                "answer": "Precision、Recall、F1 和混淆矩阵都会变化，因为正类预测数量发生改变。",
+                "keywords": ["Precision", "Recall", "F1", "混淆矩阵", "正类", "阈值"],
+                "explanation": "阈值影响预测标签，因此会改变 TP、FP、FN、TN。",
+                "knowledge_point": "predict_proba 阈值调整",
+                "score": 15,
+            },
+        ]
+    return [
+        {
+            "id": "q1",
+            "type": "single_choice",
+            "type_label": "单选题",
+            "difficulty": "入门",
+            "question": "逻辑回归通常用于哪类机器学习任务？",
+            "options": ["聚类", "分类", "排序", "降维"],
+            "answer": "B",
+            "explanation": "逻辑回归通过 sigmoid 输出正类概率，常用于二分类或多分类任务。",
+            "knowledge_point": "逻辑回归任务类型",
+            "score": 15,
+        },
+        {
+            "id": "q2",
+            "type": "multiple_choice",
+            "type_label": "多选题",
+            "difficulty": "基础",
+            "question": "评价分类模型时，以下哪些指标常用？",
+            "options": ["Accuracy", "Recall", "F1-score", "HTML"],
+            "answer": "ABC",
+            "explanation": "Accuracy、Recall、F1-score 都是分类评估指标，HTML 不是模型评价指标。",
+            "knowledge_point": "分类评估指标",
+            "score": 20,
+        },
+        {
+            "id": "q3",
+            "type": "true_false",
+            "type_label": "判断题",
+            "difficulty": "基础",
+            "question": "学习率越大，梯度下降训练一定越快且越稳定。",
+            "options": ["正确", "错误"],
+            "answer": "B",
+            "explanation": "学习率过大可能导致震荡甚至不收敛；学习率过小则收敛较慢。",
+            "knowledge_point": "学习率与收敛",
+            "score": 15,
+        },
+        {
+            "id": "q4",
+            "type": "short_answer",
+            "type_label": "简答题",
+            "difficulty": "进阶",
+            "question": "请用一句话解释准确率和召回率的区别。",
+            "answer": "准确率关注整体预测正确比例，召回率关注真实正类被找回的比例。",
+            "keywords": ["准确率", "整体", "召回率", "正类", "找回"],
+            "explanation": "简答题按关键词给分，重点是能区分整体正确率和正类覆盖能力。",
+            "knowledge_point": "Accuracy 与 Recall",
+            "score": 20,
+        },
+        {
+            "id": "q5",
+            "type": "short_answer",
+            "type_label": "应用分析题",
+            "difficulty": "进阶",
+            "question": f"如果你的薄弱点是“{weakness}”，你会优先观察分类报告中的哪个指标？为什么？",
+            "answer": "若关注漏判，应优先看召回率；若关注误报，应看精确率；综合比较可看 F1-score。",
+            "keywords": ["召回率", "精确率", "F1", "漏判", "误报"],
+            "explanation": "这题考查能否根据业务代价选择合适指标，而不是死记指标名称。",
+            "knowledge_point": "指标选择",
+            "score": 15,
+        },
+        {
+            "id": "q6",
+            "type": "short_answer",
+            "type_label": "代码阅读题",
+            "difficulty": "挑战",
+            "question": "`classification_report(y_test, pred)` 输出某一类 recall 很低，可能说明什么？",
+            "answer": "说明该类真实样本中被模型正确找回的比例低，可能存在类别不平衡、阈值不合适或特征不足。",
+            "keywords": ["recall", "找回", "类别不平衡", "阈值", "特征"],
+            "explanation": "代码阅读题关注你能否把指标输出解释成模型问题定位线索。",
+            "knowledge_point": "分类报告解读",
+            "score": 15,
+        },
+    ]
 
 
 def _mock_resource(
@@ -474,7 +622,7 @@ def _mock_resource(
             "## 常见误区\n"
             "逻辑回归名字里有“回归”，但常用于分类；准确率高也不代表少数类识别一定好。\n\n"
             "## 学习建议\n"
-            "先看思维导图建立框架，再看动画理解决策边界，最后用练习题检查概念。"
+            "先阅读讲解文档建立框架，再用练习题检查概念，最后通过代码实操验证理解。"
         )
     if resource_type == "quiz":
         return (
@@ -487,53 +635,6 @@ def _mock_resource(
             "| 简答题 | 进阶 | 解释准确率和召回率的区别。 | 略 | 准确率看整体预测正确比例，召回率关注正类被找回的比例。 |\n"
             "| 应用题 | 进阶 | 医疗筛查中漏诊代价很高，应优先关注哪个指标？ | 召回率 | 漏诊对应假阴性，应提高正类召回。 |\n"
             "| 代码阅读题 | 挑战 | 看到 `classification_report` 中某类 recall 很低，应如何排查？ | 检查类别不平衡、阈值、特征和样本质量 | 这类题考查指标解释，不要求写完整项目代码。 |"
-        )
-    if resource_type == "mindmap":
-        return (
-            "```mermaid\n"
-            "mindmap\n"
-            "  root((机器学习))\n"
-            "    监督学习\n"
-            "      分类\n"
-            "        逻辑回归\n"
-            "        决策边界\n"
-            "      回归\n"
-            "        线性回归\n"
-            "    模型训练\n"
-            "      损失函数\n"
-            "      梯度下降\n"
-            "    模型评估\n"
-            "      准确率\n"
-            "      召回率\n"
-            "      F1值\n"
-            "```"
-        )
-    if resource_type == "reading_pack":
-        return (
-            "# 拓展阅读材料\n\n"
-            "## 阅读路线\n"
-            "先读分类任务与概率解释，再读模型评估指标，最后读不平衡数据下的评价策略。\n\n"
-            "## 核心关键词\n"
-            "logistic regression、sigmoid、decision boundary、precision、recall、F1-score、class imbalance。\n\n"
-            "| 材料 | 阅读目的 | 读后产出 |\n"
-            "| --- | --- | --- |\n"
-            "| 逻辑回归教材章节 | 建立概率分类视角 | 用自己的话解释 $P(y=1|x)$ |\n"
-            "| 分类指标说明文档 | 区分准确率、精确率、召回率 | 写出三种指标适用场景 |\n"
-            "| 类别不平衡案例文章 | 理解为什么准确率会误导 | 总结一个业务例子 |\n"
-        )
-    if resource_type == "multimodal_animation":
-        return (
-            "# 多模态教学动画\n\n"
-            "## 动画目标\n"
-            "用“数据点 + 决策边界 + 概率公式”的组合，帮助你直观看懂逻辑回归如何完成分类。\n\n"
-            "## 分镜脚本\n"
-            "1. 数据点按类别出现，形成两簇分布。\n"
-            "2. 蓝色决策边界穿过特征空间，把两类样本分开。\n"
-            "3. 右上角显示 sigmoid 概率公式，强调输出不是硬标签，而是概率。\n\n"
-            "## 旁白文案\n"
-            "当输入特征进入模型后，线性部分先得到一个分数；sigmoid 会把分数压缩成 0 到 1 之间的概率，再通过阈值判断类别。\n\n"
-            "## 交互提示\n"
-            "播放动画时观察边界两侧数据点的颜色变化，再回到练习题检查自己是否能解释 recall 与 F1。"
         )
     if resource_type == "code_case":
         return (
