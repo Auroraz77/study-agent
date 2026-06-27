@@ -949,6 +949,46 @@ button:disabled {
   font-weight: 700;
 }
 
+.tts-panel {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  margin: 14px 0 18px;
+  padding: 12px;
+  border: 1px solid #dbe6ff;
+  border-radius: 8px;
+  background: #f5f8ff;
+}
+
+.tts-copy {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.tts-copy strong {
+  font-size: 15px;
+}
+
+.tts-copy span {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.tts-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+.tts-actions .secondary-btn {
+  width: auto;
+  min-height: 36px;
+  padding: 0 12px;
+}
+
 .table-wrap {
   width: 100%;
   margin: 14px 0;

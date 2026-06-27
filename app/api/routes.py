@@ -21,10 +21,13 @@ from app.models import (
     QuizNextRequest,
     QuizSubmitRequest,
     RegisterRequest,
+    TTSRequest,
+    TTSResponse,
     UserResponse,
 )
 from app.parsers.document_parser import ParseError, parse_document
 from app.llm.qwen import QwenClient
+from app.llm.qwen_tts import QwenTTSClient
 from app.rag.db_store import DatabaseKnowledgeStore
 from app.storage.minio_store import MinioStorage
 
@@ -32,6 +35,7 @@ router = APIRouter()
 store = DatabaseKnowledgeStore()
 storage = MinioStorage()
 qa_llm = QwenClient()
+tts_client = QwenTTSClient()
 agent_graph = LearningAgentGraph(store=store)
 
 
@@ -181,6 +185,25 @@ def next_quiz_get(
     current_user: User = Depends(get_current_user),
 ) -> dict:
     return _next_quiz_payload(course=course, level=level)
+
+
+@router.post("/tts/speech", response_model=TTSResponse)
+def tts_speech(payload: TTSRequest, current_user: User = Depends(get_current_user)) -> dict:
+    text = payload.text.strip()
+    if not text:
+        raise HTTPException(status_code=400, detail="语音播报内容不能为空")
+    try:
+        audio = tts_client.synthesize(text=text, voice=payload.voice)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    return {
+        "audio_base64": audio.audio_base64,
+        "content_type": audio.content_type,
+        "model": audio.model,
+        "voice": audio.voice,
+    }
 
 
 def _next_quiz_payload(course: str, level: int) -> dict:

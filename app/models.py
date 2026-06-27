@@ -42,6 +42,18 @@ class AskQuestionResponse(BaseModel):
     mode: str
 
 
+class TTSRequest(BaseModel):
+    text: str = Field(min_length=1, max_length=12000)
+    voice: str | None = Field(default=None, max_length=80)
+
+
+class TTSResponse(BaseModel):
+    audio_base64: str
+    content_type: str
+    model: str
+    voice: str
+
+
 class RegisterRequest(BaseModel):
     username: str = Field(min_length=3, max_length=100)
     password: str = Field(min_length=6, max_length=128)

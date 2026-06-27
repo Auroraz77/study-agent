@@ -35,6 +35,7 @@ let dashboardLoaded = false;
 let authToken = localStorage.getItem("learning_auth_token") || "";
 let currentUser = null;
 let qaMode = localStorage.getItem("learning_qa_mode") || "rag";
+let currentSpeechAudio = null;
 
 runBtn.addEventListener("click", runWorkflow);
 seedBtn.addEventListener("click", seedKnowledge);
@@ -415,6 +416,7 @@ function renderResources(resources) {
 function showResource(index) {
   const resource = currentResources[index];
   const container = document.getElementById("resourceContent");
+  stopSpeech(false);
   if (!resource) {
     container.textContent = "暂无资源。";
     return;
@@ -422,13 +424,133 @@ function showResource(index) {
 
   container.innerHTML = `
     <p><strong>${escapeHtml(resource.agent)}</strong>${resource.modality ? ` · <span class="resource-modality">${escapeHtml(resource.modality)}</span>` : ""}</p>
+    ${isSpeechResource(resource) ? renderSpeechControls() : ""}
     ${resource.type === "quiz" && Array.isArray(resource.quiz) ? "" : markdownToHtml(resource.content || "")}
     ${resource.type === "quiz" && Array.isArray(resource.quiz) ? renderQuizForm(resource.quiz) : ""}
   `;
   if (resource.type === "quiz" && Array.isArray(resource.quiz)) {
     bindQuizForm(resource);
   }
+  if (isSpeechResource(resource)) {
+    bindSpeechControls(resource);
+  }
   typesetMath(container);
+}
+
+function isSpeechResource(resource) {
+  const type = String(resource?.type || "").toLowerCase();
+  const modality = String(resource?.modality || "").toLowerCase();
+  const title = String(resource?.title || "");
+  return type === "text" || type === "explanation_doc" || modality === "text" || title.includes("讲解文档");
+}
+
+function renderSpeechControls() {
+  return `
+    <section class="tts-panel">
+      <div class="tts-copy">
+        <strong>语音播报</strong>
+        <span id="ttsStatus">使用 qwen3-tts-flash 生成讲解音频</span>
+      </div>
+      <div class="tts-actions">
+        <button id="ttsPlayBtn" type="button" class="secondary-btn">生成并播放</button>
+        <button id="ttsPauseBtn" type="button" class="secondary-btn" disabled>暂停</button>
+        <button id="ttsResumeBtn" type="button" class="secondary-btn" disabled>继续</button>
+        <button id="ttsStopBtn" type="button" class="secondary-btn" disabled>停止</button>
+      </div>
+    </section>
+  `;
+}
+
+function bindSpeechControls(resource) {
+  const playBtn = document.getElementById("ttsPlayBtn");
+  const pauseBtn = document.getElementById("ttsPauseBtn");
+  const resumeBtn = document.getElementById("ttsResumeBtn");
+  const stopBtn = document.getElementById("ttsStopBtn");
+  const status = document.getElementById("ttsStatus");
+  if (!playBtn || !pauseBtn || !resumeBtn || !stopBtn || !status) return;
+
+  playBtn.addEventListener("click", async () => {
+    if (!requireLogin()) return;
+    const text = extractSpeechText(resource);
+    if (!text) {
+      status.textContent = "当前讲解文档没有可播报内容";
+      return;
+    }
+
+    playBtn.disabled = true;
+    status.textContent = "正在生成语音...";
+    try {
+      const result = await postJson("/api/tts/speech", {text});
+      stopSpeech(false);
+      currentSpeechAudio = new Audio(`data:${result.content_type};base64,${result.audio_base64}`);
+      currentSpeechAudio.addEventListener("ended", () => {
+        status.textContent = "播报已结束";
+        pauseBtn.disabled = true;
+        resumeBtn.disabled = true;
+        stopBtn.disabled = true;
+      });
+      await currentSpeechAudio.play();
+      status.textContent = `正在播报：${result.model}`;
+      pauseBtn.disabled = false;
+      resumeBtn.disabled = true;
+      stopBtn.disabled = false;
+    } catch (error) {
+      status.textContent = error.message;
+    } finally {
+      playBtn.disabled = false;
+    }
+  });
+
+  pauseBtn.addEventListener("click", () => {
+    if (!currentSpeechAudio) return;
+    currentSpeechAudio.pause();
+    status.textContent = "已暂停";
+    pauseBtn.disabled = true;
+    resumeBtn.disabled = false;
+  });
+
+  resumeBtn.addEventListener("click", async () => {
+    if (!currentSpeechAudio) return;
+    await currentSpeechAudio.play();
+    status.textContent = "正在播报";
+    pauseBtn.disabled = false;
+    resumeBtn.disabled = true;
+  });
+
+  stopBtn.addEventListener("click", () => stopSpeech(true));
+}
+
+function stopSpeech(updateStatus = true) {
+  if (currentSpeechAudio) {
+    currentSpeechAudio.pause();
+    currentSpeechAudio.currentTime = 0;
+    currentSpeechAudio = null;
+  }
+  if (!updateStatus) return;
+  const status = document.getElementById("ttsStatus");
+  const pauseBtn = document.getElementById("ttsPauseBtn");
+  const resumeBtn = document.getElementById("ttsResumeBtn");
+  const stopBtn = document.getElementById("ttsStopBtn");
+  if (status) status.textContent = "已停止";
+  if (pauseBtn) pauseBtn.disabled = true;
+  if (resumeBtn) resumeBtn.disabled = true;
+  if (stopBtn) stopBtn.disabled = true;
+}
+
+function extractSpeechText(resource) {
+  return stripMarkdownForSpeech(resource.content || "").slice(0, 6000);
+}
+
+function stripMarkdownForSpeech(text) {
+  return String(text || "")
+    .replace(/```[\s\S]*?```/g, " 代码示例。 ")
+    .replace(/!\[[^\]]*\]\([^)]+\)/g, "")
+    .replace(/\[([^\]]+)\]\([^)]+\)/g, "$1")
+    .replace(/<\/?[^>]+>/g, " ")
+    .replace(/[#>*_`~\-]+/g, " ")
+    .replace(/\|/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
 function renderQuizForm(quiz, level = 1) {

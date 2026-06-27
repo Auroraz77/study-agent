@@ -17,6 +17,9 @@ QWEN_BASE_URL = os.getenv(
 )
 QWEN_API_KEY = os.getenv("DASHSCOPE_API_KEY") or os.getenv("QWEN_API_KEY")
 QWEN_MODEL = os.getenv("QWEN_MODEL", "qwen-plus")
+QWEN_TTS_MODEL = os.getenv("QWEN_TTS_MODEL", "qwen3-tts-flash")
+QWEN_TTS_VOICE = os.getenv("QWEN_TTS_VOICE", "Cherry")
+QWEN_TTS_FORMAT = os.getenv("QWEN_TTS_FORMAT", "mp3")
 FORCE_MOCK_LLM = os.getenv("FORCE_MOCK_LLM", "0") == "1"
 AUTH_SECRET_KEY = os.getenv("AUTH_SECRET_KEY", "dev-learning-agent-secret")
 AUTH_TOKEN_EXPIRE_HOURS = int(os.getenv("AUTH_TOKEN_EXPIRE_HOURS", "24"))
