@@ -36,6 +36,9 @@ let authToken = localStorage.getItem("learning_auth_token") || "";
 let currentUser = null;
 let qaMode = localStorage.getItem("learning_qa_mode") || "rag";
 let currentSpeechAudio = null;
+let localSpeechParts = [];
+let localSpeechIndex = 0;
+let localSpeechStopped = true;
 
 runBtn.addEventListener("click", runWorkflow);
 seedBtn.addEventListener("click", seedKnowledge);
@@ -449,10 +452,10 @@ function renderSpeechControls() {
     <section class="tts-panel">
       <div class="tts-copy">
         <strong>语音播报</strong>
-        <span id="ttsStatus">使用 qwen3-tts-flash 生成讲解音频</span>
+        <span id="ttsStatus">使用浏览器本地语音朗读全文，不消耗AI语音额度</span>
       </div>
       <div class="tts-actions">
-        <button id="ttsPlayBtn" type="button" class="secondary-btn">生成并播放</button>
+        <button id="ttsPlayBtn" type="button" class="secondary-btn">本地朗读全文</button>
         <button id="ttsPauseBtn" type="button" class="secondary-btn" disabled>暂停</button>
         <button id="ttsResumeBtn" type="button" class="secondary-btn" disabled>继续</button>
         <button id="ttsStopBtn" type="button" class="secondary-btn" disabled>停止</button>
@@ -469,49 +472,39 @@ function bindSpeechControls(resource) {
   const status = document.getElementById("ttsStatus");
   if (!playBtn || !pauseBtn || !resumeBtn || !stopBtn || !status) return;
 
-  playBtn.addEventListener("click", async () => {
-    if (!requireLogin()) return;
-    const text = extractSpeechText(resource);
-    if (!text) {
+  if (!("speechSynthesis" in window) || typeof SpeechSynthesisUtterance === "undefined") {
+    status.textContent = "当前浏览器不支持本地语音朗读";
+    playBtn.disabled = true;
+    return;
+  }
+
+  playBtn.addEventListener("click", () => {
+    const parts = extractSpeechParts(resource);
+    if (!parts.length) {
       status.textContent = "当前讲解文档没有可播报内容";
       return;
     }
 
+    stopSpeech(false);
+    localSpeechParts = parts;
+    localSpeechIndex = 0;
+    localSpeechStopped = false;
     playBtn.disabled = true;
-    status.textContent = "正在生成语音...";
-    try {
-      const result = await postJson("/api/tts/speech", {text});
-      stopSpeech(false);
-      currentSpeechAudio = new Audio(`data:${result.content_type};base64,${result.audio_base64}`);
-      currentSpeechAudio.addEventListener("ended", () => {
-        status.textContent = "播报已结束";
-        pauseBtn.disabled = true;
-        resumeBtn.disabled = true;
-        stopBtn.disabled = true;
-      });
-      await currentSpeechAudio.play();
-      status.textContent = `正在播报：${result.model}`;
-      pauseBtn.disabled = false;
-      resumeBtn.disabled = true;
-      stopBtn.disabled = false;
-    } catch (error) {
-      status.textContent = error.message;
-    } finally {
-      playBtn.disabled = false;
-    }
+    pauseBtn.disabled = false;
+    resumeBtn.disabled = true;
+    stopBtn.disabled = false;
+    speakNextLocalPart(status, playBtn, pauseBtn, resumeBtn, stopBtn);
   });
 
   pauseBtn.addEventListener("click", () => {
-    if (!currentSpeechAudio) return;
-    currentSpeechAudio.pause();
+    window.speechSynthesis.pause();
     status.textContent = "已暂停";
     pauseBtn.disabled = true;
     resumeBtn.disabled = false;
   });
 
-  resumeBtn.addEventListener("click", async () => {
-    if (!currentSpeechAudio) return;
-    await currentSpeechAudio.play();
+  resumeBtn.addEventListener("click", () => {
+    window.speechSynthesis.resume();
     status.textContent = "正在播报";
     pauseBtn.disabled = false;
     resumeBtn.disabled = true;
@@ -520,7 +513,46 @@ function bindSpeechControls(resource) {
   stopBtn.addEventListener("click", () => stopSpeech(true));
 }
 
+function speakNextLocalPart(status, playBtn, pauseBtn, resumeBtn, stopBtn) {
+  if (localSpeechStopped) return;
+  if (localSpeechIndex >= localSpeechParts.length) {
+    status.textContent = "播报已结束";
+    playBtn.disabled = false;
+    pauseBtn.disabled = true;
+    resumeBtn.disabled = true;
+    stopBtn.disabled = true;
+    localSpeechStopped = true;
+    return;
+  }
+
+  const utterance = new SpeechSynthesisUtterance(localSpeechParts[localSpeechIndex]);
+  utterance.lang = "zh-CN";
+  utterance.rate = 1;
+  utterance.pitch = 1;
+  utterance.volume = 1;
+  utterance.onend = () => {
+    localSpeechIndex += 1;
+    speakNextLocalPart(status, playBtn, pauseBtn, resumeBtn, stopBtn);
+  };
+  utterance.onerror = () => {
+    status.textContent = "本地语音朗读失败，请检查浏览器语音设置";
+    playBtn.disabled = false;
+    pauseBtn.disabled = true;
+    resumeBtn.disabled = true;
+    stopBtn.disabled = true;
+    localSpeechStopped = true;
+  };
+  status.textContent = `正在播报 ${localSpeechIndex + 1}/${localSpeechParts.length}`;
+  window.speechSynthesis.speak(utterance);
+}
+
 function stopSpeech(updateStatus = true) {
+  localSpeechStopped = true;
+  localSpeechParts = [];
+  localSpeechIndex = 0;
+  if ("speechSynthesis" in window) {
+    window.speechSynthesis.cancel();
+  }
   if (currentSpeechAudio) {
     currentSpeechAudio.pause();
     currentSpeechAudio.currentTime = 0;
@@ -537,8 +569,38 @@ function stopSpeech(updateStatus = true) {
   if (stopBtn) stopBtn.disabled = true;
 }
 
-function extractSpeechText(resource) {
-  return stripMarkdownForSpeech(resource.content || "").slice(0, 6000);
+function extractSpeechParts(resource) {
+  return splitSpeechText(stripMarkdownForSpeech(resource.content || ""));
+}
+
+function splitSpeechText(text) {
+  const source = String(text || "").trim();
+  if (!source) return [];
+  const sentences = source
+    .split(/(?<=[。！？!?；;])\s+/)
+    .map((item) => item.trim())
+    .filter(Boolean);
+  const parts = [];
+  let current = "";
+  sentences.forEach((sentence) => {
+    if ((current + sentence).length > 220 && current) {
+      parts.push(current.trim());
+      current = sentence;
+    } else {
+      current = `${current} ${sentence}`.trim();
+    }
+  });
+  if (current) parts.push(current.trim());
+  return parts.flatMap((part) => splitLongSpeechPart(part, 220));
+}
+
+function splitLongSpeechPart(text, size) {
+  if (text.length <= size) return [text];
+  const parts = [];
+  for (let index = 0; index < text.length; index += size) {
+    parts.push(text.slice(index, index + size));
+  }
+  return parts;
 }
 
 function stripMarkdownForSpeech(text) {
