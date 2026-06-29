@@ -1,6 +1,5 @@
 const runBtn = document.getElementById("runBtn");
 const appShell = document.querySelector(".app-shell");
-const seedBtn = document.getElementById("seedBtn");
 const uploadBtn = document.getElementById("uploadBtn");
 const fileInput = document.getElementById("fileInput");
 const fileNameLabel = document.getElementById("fileNameLabel");
@@ -64,7 +63,6 @@ let activeChunkDetail = null;
 let pdfSideUrl = "";
 
 runBtn.addEventListener("click", submitComposer);
-seedBtn.addEventListener("click", seedKnowledge);
 uploadBtn.addEventListener("click", uploadKnowledge);
 fileInput.addEventListener("change", updateSelectedFileName);
 refreshDashboardBtn.addEventListener("click", loadDashboard);
@@ -248,19 +246,6 @@ async function runWorkflow() {
   } finally {
     runBtn.disabled = false;
     runBtn.querySelector("span").textContent = "发送";
-  }
-}
-
-async function seedKnowledge() {
-  setStatus("running", "导入中");
-  try {
-    const result = await postJson("/api/knowledge/seed", {});
-    kbStatus.textContent = `演示资料已导入，当前知识片段 ${result.total} 条。`;
-    dashboardLoaded = false;
-    setStatus("done", "已导入");
-  } catch (error) {
-    kbStatus.textContent = error.message;
-    setStatus("error", "导入失败");
   }
 }
 
@@ -1273,9 +1258,9 @@ function renderProfiles(items) {
           </div>
           <p class="profile-goal">${escapeHtml(item.learning_goal || "暂无学习目标")}</p>
           <div class="profile-chip-grid">
-            <span class="profile-chip"><b>基础</b>${escapeHtml(item.knowledge_base || "-")}</span>
-            <span class="profile-chip"><b>薄弱点</b>${escapeHtml((item.weaknesses || []).join("、") || "-")}</span>
-            <span class="profile-chip"><b>偏好</b>${escapeHtml((item.learning_style || []).join("、") || "-")}</span>
+            <span class="profile-chip"><b>基础</b><em>${escapeHtml(item.knowledge_base || "-")}</em></span>
+            <span class="profile-chip"><b>薄弱点</b><em>${escapeHtml((item.weaknesses || []).join("、") || "-")}</em></span>
+            <span class="profile-chip"><b>偏好</b><em>${escapeHtml((item.learning_style || []).join("、") || "-")}</em></span>
           </div>
           <small>最近更新：${escapeHtml(item.updated_at || "-")}</small>
         </article>

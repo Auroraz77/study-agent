@@ -309,7 +309,7 @@ button:disabled {
 
 .material-actions-row {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: 1fr;
   gap: 8px;
   margin-top: 10px;
 }
@@ -682,6 +682,19 @@ button:disabled {
 
 .dashboard-layout > .section-block:first-child {
   height: min(560px, calc(100vh - 160px));
+}
+
+.plan-summary-block {
+  display: none;
+}
+
+.dashboard-files-block {
+  height: min(360px, calc(100vh - 250px));
+}
+
+.dashboard-layout > .section-block:has(#profilesList) {
+  height: min(260px, calc(100vh - 380px));
+  min-height: 210px;
 }
 
 .dashboard-layout > .section-block > :last-child {
@@ -1937,57 +1950,73 @@ button:disabled {
 .file-list {
   display: grid;
   align-content: start;
-  padding: 12px 14px 16px;
+  padding: 10px 14px 14px;
   overflow: auto;
 }
 
 .file-list-head,
 .file-list-row {
   display: grid;
-  grid-template-columns: minmax(220px, 1.6fr) minmax(110px, 0.8fr) 90px 86px 82px 74px;
-  gap: 12px;
+  grid-template-columns: minmax(260px, 1.8fr) minmax(120px, 0.8fr) 88px 86px 72px 74px;
+  gap: 14px;
   align-items: center;
-  min-width: 760px;
+  min-width: 820px;
 }
 
 .file-list-head {
   position: sticky;
   z-index: 1;
   top: 0;
-  padding: 8px 10px;
+  border-radius: 10px;
+  padding: 9px 12px;
   color: #667085;
-  background: rgba(248, 250, 252, 0.96);
+  background: #f5f8fc;
   border-bottom: 1px solid var(--line);
   font-size: 12px;
   font-weight: 850;
 }
 
 .file-list-row {
-  padding: 12px 10px;
+  margin-top: 4px;
+  border: 1px solid transparent;
+  border-radius: 12px;
+  padding: 11px 12px;
   border-bottom: 1px solid #edf1f7;
   color: #344054;
-  background: #fff;
+  background: linear-gradient(135deg, #fff, #fbfdff);
+  transition:
+    background 0.16s ease,
+    border-color 0.16s ease,
+    box-shadow 0.16s ease;
 }
 
 .file-list-row:hover {
+  border-color: #dbe7ff;
   background: #f8fbff;
+  box-shadow: 0 10px 24px rgba(24, 32, 42, 0.06);
 }
 
 .file-name-cell {
   display: grid;
-  gap: 4px;
+  gap: 5px;
   min-width: 0;
 }
 
 .file-name-cell strong {
   overflow: hidden;
   color: #18202a;
+  font-size: 15px;
+  line-height: 1.35;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .file-name-cell small {
-  color: #667085;
+  width: fit-content;
+  border-radius: 999px;
+  padding: 2px 8px;
+  color: #51607a;
+  background: #eef4ff;
   font-size: 12px;
   font-weight: 800;
 }
@@ -1999,6 +2028,12 @@ button:disabled {
   border-color: #fecdd3;
   background: #fff7f8;
   font-size: 13px;
+}
+
+.file-list-row .danger-btn {
+  justify-self: start;
+  min-height: 30px;
+  border-radius: 10px;
 }
 
 .data-table-wrap {
@@ -2064,6 +2099,12 @@ button:disabled {
   padding: 18px;
 }
 
+.dashboard-layout > .section-block:has(#profilesList) .record-list {
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  gap: 10px;
+  padding: 10px 14px 12px;
+}
+
 .record-item {
   border: 1px solid var(--line);
   border-radius: 8px;
@@ -2105,44 +2146,79 @@ button:disabled {
 
 .profile-card {
   display: grid;
-  gap: 12px;
+  gap: 7px;
   border: 1px solid var(--line);
-  border-radius: 8px;
-  padding: 16px;
-  background: linear-gradient(135deg, #ffffff, #f8fbff);
+  border-radius: 14px;
+  padding: 10px 12px;
+  background:
+    radial-gradient(circle at top right, rgba(37, 99, 235, 0.08), transparent 34%),
+    linear-gradient(135deg, #ffffff, #f8fbff);
+  box-shadow: 0 10px 22px rgba(24, 32, 42, 0.05);
 }
 
 .profile-goal {
   margin: 0;
   color: #1d2939;
-  line-height: 1.6;
+  font-size: 13px;
+  line-height: 1.45;
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 1;
 }
 
 .profile-chip-grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 10px;
+  gap: 6px;
 }
 
 .profile-chip {
   display: grid;
-  gap: 5px;
-  min-height: 70px;
+  align-content: start;
+  gap: 3px;
+  min-height: 0;
   border: 1px solid #dbe4f0;
-  border-radius: 8px;
-  padding: 10px;
+  border-radius: 10px;
+  padding: 6px 8px;
   color: #344054;
-  background: #fff;
-  line-height: 1.45;
+  background: rgba(255, 255, 255, 0.82);
+  line-height: 1.35;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .profile-chip b {
   color: #2563eb;
-  font-size: 12px;
+  font-size: 11px;
+}
+
+.profile-chip em {
+  display: -webkit-box;
+  overflow: hidden;
+  font-style: normal;
+  font-size: 13px;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
 }
 
 .profile-card small {
   color: var(--muted);
+  font-size: 11px;
+}
+
+.profile-card .record-title {
+  margin-bottom: 0;
+}
+
+.profile-card .record-title strong {
+  font-size: 15px;
+}
+
+.profile-card .record-title span {
+  padding: 2px 8px;
+  background: #eaf1ff;
+  font-size: 11px;
 }
 
 .search-row {
