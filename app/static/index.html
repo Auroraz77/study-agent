@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>个性化学习多智能体系统</title>
-    <link rel="stylesheet" href="/styles.css?v=student12" />
+    <link rel="stylesheet" href="/styles.css?v=student14" />
   </head>
   <body>
     <div class="app-shell">
@@ -31,14 +31,22 @@
           </ol>
         </section>
 
-        <section class="panel workspace-panel">
-          <h2>课程资料</h2>
-          <div class="upload-row">
-            <input id="fileInput" type="file" accept=".txt,.md,.csv,.pdf,.doc,.docx,.ppt,.pptx" />
-            <button id="uploadBtn" class="secondary-btn">上传</button>
+        <section class="panel workspace-panel material-panel">
+          <div class="material-panel-head">
+            <h2>课程资料</h2>
+            <span>Knowledge Base</span>
           </div>
-          <button id="seedBtn" class="secondary-btn full">导入演示资料</button>
-          <p id="kbStatus" class="muted">上传课程资料后，系统会自动解析并用于后续学习问答。</p>
+          <label class="file-dropzone" for="fileInput">
+            <input id="fileInput" type="file" accept=".txt,.md,.csv,.pdf,.doc,.docx,.ppt,.pptx" />
+            <span class="file-dropzone-icon">KB</span>
+            <strong id="fileNameLabel">选择教材、课件或笔记</strong>
+            <small>支持 PDF / DOCX / PPTX / TXT</small>
+          </label>
+          <div class="material-actions-row">
+            <button id="uploadBtn" class="secondary-btn">上传解析</button>
+            <button id="seedBtn" class="secondary-btn">导入演示资料</button>
+          </div>
+          <p id="kbStatus" class="muted material-status">上传后会自动解析为知识片段，用于资料问答和个性化资源生成。</p>
         </section>
 
         <section class="panel dashboard-panel hidden">
@@ -328,6 +336,6 @@
       };
     </script>
     <script defer src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
-    <script defer src="/app.js?v=student12"></script>
+    <script defer src="/app.js?v=student14"></script>
   </body>
 </html>

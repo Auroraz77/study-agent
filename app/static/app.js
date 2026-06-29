@@ -3,6 +3,7 @@ const appShell = document.querySelector(".app-shell");
 const seedBtn = document.getElementById("seedBtn");
 const uploadBtn = document.getElementById("uploadBtn");
 const fileInput = document.getElementById("fileInput");
+const fileNameLabel = document.getElementById("fileNameLabel");
 const statusPill = document.getElementById("statusPill");
 const kbStatus = document.getElementById("kbStatus");
 const refreshDashboardBtn = document.getElementById("refreshDashboardBtn");
@@ -65,6 +66,7 @@ let pdfSideUrl = "";
 runBtn.addEventListener("click", submitComposer);
 seedBtn.addEventListener("click", seedKnowledge);
 uploadBtn.addEventListener("click", uploadKnowledge);
+fileInput.addEventListener("change", updateSelectedFileName);
 refreshDashboardBtn.addEventListener("click", loadDashboard);
 dashboardSearchBtn.addEventListener("click", searchDashboardKnowledge);
 exportPptBtn.addEventListener("click", exportCurrentPpt);
@@ -579,7 +581,7 @@ function showResource(index) {
 
   container.innerHTML = `
     <p><strong>${escapeHtml(resource.agent)}</strong>${resource.modality ? ` · <span class="resource-modality">${escapeHtml(resource.modality)}</span>` : ""}</p>
-    ${isSpeechResource(resource) ? renderSpeechControls() : ""}
+    ${isSpeechResource(resource) ? renderSpeechControls(resource) : ""}
     ${resource.type === "quiz" && Array.isArray(resource.quiz) ? "" : markdownToHtml(resource.content || "")}
     ${resource.type === "quiz" && Array.isArray(resource.quiz) ? renderQuizForm(resource.quiz) : ""}
   `;
@@ -599,25 +601,38 @@ function isSpeechResource(resource) {
   return type === "text" || type === "explanation_doc" || modality === "text" || title.includes("讲解文档");
 }
 
-function renderSpeechControls() {
+function renderSpeechControls(resource) {
+  const hasResourceId = Boolean(resource?.id);
+  const hasAiAudio = Boolean(resource?.has_audio);
+  const statusText = hasAiAudio ? "已生成 AI 音频，可直接播放缓存" : "可本地朗读，也可生成一次 AI 音频并缓存";
   return `
     <section class="tts-panel">
       <div class="tts-copy">
         <strong>语音播报</strong>
-        <span id="ttsStatus">使用浏览器本地语音朗读全文，不消耗AI语音额度</span>
+        <span id="ttsStatus">${escapeHtml(statusText)}</span>
       </div>
       <div class="tts-actions">
         <button id="ttsPlayBtn" type="button" class="secondary-btn">本地朗读全文</button>
+        <button id="ttsAiBtn" type="button" class="secondary-btn ai-audio-btn" ${hasResourceId ? "" : "disabled"}>${hasAiAudio ? "播放AI语音" : "生成AI语音"}</button>
         <button id="ttsPauseBtn" type="button" class="secondary-btn" disabled>暂停</button>
         <button id="ttsResumeBtn" type="button" class="secondary-btn" disabled>继续</button>
         <button id="ttsStopBtn" type="button" class="secondary-btn" disabled>停止</button>
+        <audio id="ttsAiAudio" class="tts-audio" controls preload="none"></audio>
       </div>
     </section>
   `;
 }
 
+function updateSelectedFileName() {
+  if (!fileNameLabel) return;
+  const file = fileInput.files?.[0];
+  fileNameLabel.textContent = file ? file.name : "选择教材、课件或笔记";
+}
+
 function bindSpeechControls(resource) {
   const playBtn = document.getElementById("ttsPlayBtn");
+  const aiBtn = document.getElementById("ttsAiBtn");
+  const aiAudio = document.getElementById("ttsAiAudio");
   const pauseBtn = document.getElementById("ttsPauseBtn");
   const resumeBtn = document.getElementById("ttsResumeBtn");
   const stopBtn = document.getElementById("ttsStopBtn");
@@ -648,8 +663,46 @@ function bindSpeechControls(resource) {
     speakNextLocalPart(status, playBtn, pauseBtn, resumeBtn, stopBtn);
   });
 
+  aiBtn?.addEventListener("click", async () => {
+    if (!resource.id) {
+      status.textContent = "当前资源缺少 ID，无法生成 AI 音频";
+      return;
+    }
+    try {
+      stopSpeech(false);
+      aiBtn.disabled = true;
+      status.textContent = resource.has_audio ? "正在读取已缓存的 AI 音频..." : "正在生成 AI 音频，首次会消耗额度...";
+      if (!resource.has_audio) {
+        const result = await postJson(`/api/resources/${encodeURIComponent(resource.id)}/audio`, {});
+        resource.has_audio = true;
+        dashboardLoaded = false;
+        status.textContent = result.cached ? "已命中缓存，正在播放..." : "AI 音频已生成并缓存，正在播放...";
+        aiBtn.textContent = "播放AI语音";
+      }
+      if (!resource.ai_audio_object_url) {
+        resource.ai_audio_object_url = await fetchResourceAudioUrl(resource.id);
+      }
+      aiAudio.src = resource.ai_audio_object_url;
+      aiAudio.classList.add("active");
+      currentSpeechAudio = aiAudio;
+      stopBtn.disabled = false;
+      await aiAudio.play();
+      status.textContent = "正在播放 AI 音频";
+    } catch (error) {
+      status.textContent = error.message;
+    } finally {
+      aiBtn.disabled = false;
+    }
+  });
+
+  aiAudio?.addEventListener("ended", () => {
+    status.textContent = "AI 音频播放已结束";
+    stopBtn.disabled = true;
+  });
+
   pauseBtn.addEventListener("click", () => {
     window.speechSynthesis.pause();
+    if (currentSpeechAudio) currentSpeechAudio.pause();
     status.textContent = "已暂停";
     pauseBtn.disabled = true;
     resumeBtn.disabled = false;
@@ -657,12 +710,25 @@ function bindSpeechControls(resource) {
 
   resumeBtn.addEventListener("click", () => {
     window.speechSynthesis.resume();
+    if (currentSpeechAudio) currentSpeechAudio.play().catch(() => {});
     status.textContent = "正在播报";
     pauseBtn.disabled = false;
     resumeBtn.disabled = true;
   });
 
   stopBtn.addEventListener("click", () => stopSpeech(true));
+}
+
+async function fetchResourceAudioUrl(resourceId) {
+  const response = await fetch(`/api/resources/${encodeURIComponent(resourceId)}/audio`, {
+    headers: authHeaders(false),
+  });
+  if (!response.ok) {
+    const detail = await response.json().catch(() => ({}));
+    throw new Error(detail.detail || `AI音频读取失败：${response.status}`);
+  }
+  const blob = await response.blob();
+  return URL.createObjectURL(blob);
 }
 
 function speakNextLocalPart(status, playBtn, pauseBtn, resumeBtn, stopBtn) {
@@ -1063,6 +1129,7 @@ function renderLearningSessions(items) {
       return `
         <article class="session-card" data-session-id="${escapeHtml(item.id)}">
           <button class="session-delete-btn" type="button" aria-label="删除学习记录" data-session-id="${escapeHtml(item.id)}" data-title="${escapeHtml(item.title || item.course || "学习记录")}">×</button>
+          ${item.has_audio ? `<span class="session-audio-badge" title="已生成 AI 音频">🔊</span>` : ""}
           <button class="session-open-card" type="button" data-session-id="${escapeHtml(item.id)}">
             <div class="session-preview session-tone-${(index % 4) + 1}">
               <span>${escapeHtml(item.course || "课程")}</span>

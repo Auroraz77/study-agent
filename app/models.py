@@ -54,6 +54,21 @@ class TTSResponse(BaseModel):
     voice: str
 
 
+class ResourceAudioRequest(BaseModel):
+    voice: str | None = Field(default=None, max_length=80)
+
+
+class ResourceAudioResponse(BaseModel):
+    cached: bool
+    resource_id: int
+    audio_url: str
+    content_type: str
+    model: str
+    voice: str
+    storage_url: str | None = None
+    created_at: str | None = None
+
+
 class RegisterRequest(BaseModel):
     username: str = Field(min_length=3, max_length=100)
     password: str = Field(min_length=6, max_length=128)

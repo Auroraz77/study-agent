@@ -54,6 +54,43 @@ class MinioStorage:
             "content_type": content_type or "application/octet-stream",
         }
 
+    def upload_resource_audio(
+        self,
+        resource_id: int,
+        student_id: str,
+        course: str,
+        text_hash: str,
+        data: bytes,
+        content_type: str | None = None,
+        extension: str = "mp3",
+    ) -> dict[str, Any]:
+        self.ensure_bucket()
+        safe_student = _safe_path_part(student_id)
+        safe_course = _safe_path_part(course)
+        safe_hash = _safe_path_part(text_hash)[:16] or uuid4().hex[:16]
+        safe_extension = _safe_path_part(extension).lower() or "mp3"
+        today = datetime.now().strftime("%Y%m%d")
+        object_name = (
+            f"generated-audios/{safe_student}/{safe_course}/{today}/"
+            f"resource-{resource_id}-{safe_hash}.{safe_extension}"
+        )
+
+        self.client.put_object(
+            bucket_name=self.bucket,
+            object_name=object_name,
+            data=BytesIO(data),
+            length=len(data),
+            content_type=content_type or "audio/mpeg",
+        )
+
+        return {
+            "bucket": self.bucket,
+            "object_name": object_name,
+            "storage_url": f"minio://{self.bucket}/{object_name}",
+            "size": len(data),
+            "content_type": content_type or "audio/mpeg",
+        }
+
     def read_object(self, object_name: str, bucket: str | None = None) -> bytes:
         response = self.client.get_object(bucket or self.bucket, object_name)
         try:

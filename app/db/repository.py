@@ -19,6 +19,7 @@ from app.db.models import (
     KnowledgeEmbedding,
     LearningEvent,
     LearningPath,
+    ResourceAudio,
     StudentProfile,
     User,
 )
@@ -279,21 +280,23 @@ class LearningRepository:
         profile_record.profile_json = profile
 
         for resource in resources:
-            self.session.add(
-                GeneratedResource(
-                    student_id=student_id,
-                    course_id=course.id,
-                    resource_type=resource.get("type", "unknown"),
-                    title=resource.get("title", "未命名资源"),
-                    agent=resource.get("agent"),
-                    content=resource.get("content", ""),
-                    generation_params={
-                        "source": "langgraph",
-                        "modality": resource.get("modality"),
-                        "quiz": resource.get("quiz"),
-                    },
-                )
+            resource_record = GeneratedResource(
+                student_id=student_id,
+                course_id=course.id,
+                resource_type=resource.get("type", "unknown"),
+                title=resource.get("title", "Untitled resource"),
+                agent=resource.get("agent"),
+                content=resource.get("content", ""),
+                generation_params={
+                    "source": "langgraph",
+                    "modality": resource.get("modality"),
+                    "quiz": resource.get("quiz"),
+                },
             )
+            self.session.add(resource_record)
+            self.session.flush()
+            resource["id"] = resource_record.id
+            resource["has_audio"] = False
 
         self.session.add(
             LearningPath(
@@ -332,6 +335,74 @@ class LearningRepository:
             )
         )
         self.session.commit()
+
+    def get_generated_resource(self, resource_id: int, student_id: str) -> GeneratedResource | None:
+        return self.session.scalar(
+            select(GeneratedResource).where(
+                GeneratedResource.id == resource_id,
+                GeneratedResource.student_id == student_id,
+            )
+        )
+
+    def get_resource_audio(
+        self,
+        resource_id: int,
+        student_id: str,
+        model: str,
+        voice: str,
+        text_hash: str,
+    ) -> ResourceAudio | None:
+        return self.session.scalar(
+            select(ResourceAudio)
+            .where(
+                ResourceAudio.resource_id == resource_id,
+                ResourceAudio.student_id == student_id,
+                ResourceAudio.model == model,
+                ResourceAudio.voice == voice,
+                ResourceAudio.text_hash == text_hash,
+            )
+            .order_by(ResourceAudio.created_at.desc())
+            .limit(1)
+        )
+
+    def get_latest_resource_audio(self, resource_id: int, student_id: str) -> ResourceAudio | None:
+        return self.session.scalar(
+            select(ResourceAudio)
+            .where(
+                ResourceAudio.resource_id == resource_id,
+                ResourceAudio.student_id == student_id,
+            )
+            .order_by(ResourceAudio.created_at.desc())
+            .limit(1)
+        )
+
+    def save_resource_audio(
+        self,
+        resource: GeneratedResource,
+        model: str,
+        voice: str,
+        text_hash: str,
+        storage: dict[str, Any],
+        metadata: dict[str, Any] | None = None,
+    ) -> ResourceAudio:
+        audio = ResourceAudio(
+            resource_id=resource.id,
+            student_id=resource.student_id,
+            course_id=resource.course_id,
+            model=model,
+            voice=voice,
+            text_hash=text_hash,
+            content_type=storage.get("content_type") or "audio/mpeg",
+            bucket_name=storage.get("bucket"),
+            object_name=storage.get("object_name"),
+            storage_url=storage.get("storage_url"),
+            file_size=storage.get("size"),
+            metadata_json=metadata or {},
+        )
+        self.session.add(audio)
+        self.session.commit()
+        self.session.refresh(audio)
+        return audio
 
     def save_learning_event(
         self,
@@ -535,6 +606,7 @@ class LearningRepository:
         sessions = []
         for path, course in self.session.execute(stmt).all():
             resources = self._resources_for_path_session(path)
+            audio_resource_ids = self._resource_ids_with_audio(resources)
             stages = (path.path_json or {}).get("stages", [])
             sessions.append(
                 {
@@ -548,6 +620,7 @@ class LearningRepository:
                     "resource_count": len(resources),
                     "resource_titles": [resource.title for resource in resources],
                     "preview": _session_preview(resources, path.path_json or {}),
+                    "has_audio": bool(audio_resource_ids),
                 }
             )
         return sessions
@@ -569,7 +642,10 @@ class LearningRepository:
                 StudentProfile.course_id == path.course_id,
             )
         )
+        audio_resource_ids = self._resource_ids_with_audio(resources)
         resource_payload = [_resource_to_payload(resource) for resource in resources]
+        for resource in resource_payload:
+            resource["has_audio"] = resource.get("id") in audio_resource_ids
         return {
             "session_id": path.id,
             "course": course,
@@ -589,6 +665,10 @@ class LearningRepository:
             return False
 
         for resource in self._resources_for_path_session(path):
+            for audio in self.session.scalars(
+                select(ResourceAudio).where(ResourceAudio.resource_id == resource.id)
+            ).all():
+                self.session.delete(audio)
             self.session.delete(resource)
         self.session.delete(path)
         self.session.commit()
@@ -610,6 +690,15 @@ class LearningRepository:
                 if distance <= 300:
                     resources.append(resource)
         return resources
+
+    def _resource_ids_with_audio(self, resources: list[GeneratedResource]) -> set[int]:
+        resource_ids = [resource.id for resource in resources]
+        if not resource_ids:
+            return set()
+        rows = self.session.scalars(
+            select(ResourceAudio.resource_id).where(ResourceAudio.resource_id.in_(resource_ids))
+        ).all()
+        return {int(resource_id) for resource_id in rows}
 
     def dashboard_events(self, limit: int = 80, student_id: str | None = None) -> list[dict[str, Any]]:
         stmt = (

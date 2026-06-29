@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import base64
+import hashlib
 from difflib import SequenceMatcher
 from urllib.parse import quote
 
@@ -24,6 +26,8 @@ from app.models import (
     QuizNextRequest,
     QuizSubmitRequest,
     RegisterRequest,
+    ResourceAudioRequest,
+    ResourceAudioResponse,
     TTSRequest,
     TTSResponse,
     UserResponse,
@@ -226,6 +230,124 @@ def tts_speech(payload: TTSRequest, current_user: User = Depends(get_current_use
         "model": audio.model,
         "voice": audio.voice,
     }
+
+
+@router.post("/resources/{resource_id}/audio", response_model=ResourceAudioResponse)
+def create_resource_audio(
+    resource_id: int,
+    payload: ResourceAudioRequest,
+    current_user: User = Depends(get_current_user),
+) -> dict:
+    repo = LearningRepository()
+    try:
+        resource = repo.get_generated_resource(resource_id=resource_id, student_id=current_user.student_id)
+        if not resource:
+            raise HTTPException(status_code=404, detail="Learning resource not found")
+
+        text = _tts_text_for_resource(resource.content)
+        if not text:
+            raise HTTPException(status_code=400, detail="Resource has no text for AI audio")
+
+        voice = (payload.voice or tts_client.voice).strip() or tts_client.voice
+        text_hash = _tts_text_hash(text)
+        cached = repo.get_resource_audio(
+            resource_id=resource_id,
+            student_id=current_user.student_id,
+            model=tts_client.model,
+            voice=voice,
+            text_hash=text_hash,
+        )
+        if cached and cached.object_name:
+            return _resource_audio_payload(cached, cached=True)
+
+        try:
+            audio = tts_client.synthesize(text=text, voice=voice)
+            audio_bytes = base64.b64decode(audio.audio_base64)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        except RuntimeError as exc:
+            raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+        storage_info = storage.upload_resource_audio(
+            resource_id=resource.id,
+            student_id=current_user.student_id,
+            course=resource.course.name if resource.course else str(resource.course_id),
+            text_hash=text_hash,
+            data=audio_bytes,
+            content_type=audio.content_type,
+            extension=_audio_extension(audio.content_type),
+        )
+        saved = repo.save_resource_audio(
+            resource=resource,
+            model=audio.model,
+            voice=audio.voice,
+            text_hash=text_hash,
+            storage=storage_info,
+            metadata={"text_length": len(text), "source": "qwen_tts"},
+        )
+        return _resource_audio_payload(saved, cached=False)
+    finally:
+        repo.close()
+
+
+@router.get("/resources/{resource_id}/audio")
+def stream_resource_audio(resource_id: int, current_user: User = Depends(get_current_user)) -> StreamingResponse:
+    repo = LearningRepository()
+    try:
+        audio = repo.get_latest_resource_audio(resource_id=resource_id, student_id=current_user.student_id)
+        if not audio or not audio.object_name:
+            raise HTTPException(status_code=404, detail="AI audio has not been generated for this resource")
+        object_name = audio.object_name
+        bucket = audio.bucket_name
+        content_type = audio.content_type or "audio/mpeg"
+        file_size = audio.file_size
+    finally:
+        repo.close()
+
+    headers = {
+        "Accept-Ranges": "bytes",
+        "Cache-Control": "public, max-age=86400",
+    }
+    if file_size:
+        headers["Content-Length"] = str(file_size)
+    return StreamingResponse(
+        storage.iter_object(object_name=object_name, bucket=bucket),
+        media_type=content_type,
+        headers=headers,
+    )
+
+
+def _tts_text_for_resource(text: str) -> str:
+    return " ".join(str(text or "").split())[:6000]
+
+
+def _tts_text_hash(text: str) -> str:
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+
+def _resource_audio_payload(audio, cached: bool) -> dict:
+    return {
+        "cached": cached,
+        "resource_id": audio.resource_id,
+        "audio_url": f"/api/resources/{audio.resource_id}/audio",
+        "content_type": audio.content_type or "audio/mpeg",
+        "model": audio.model,
+        "voice": audio.voice,
+        "storage_url": audio.storage_url,
+        "created_at": audio.created_at.isoformat(sep=" ", timespec="seconds") if audio.created_at else None,
+    }
+
+
+def _audio_extension(content_type: str | None) -> str:
+    mapping = {
+        "audio/mpeg": "mp3",
+        "audio/mp3": "mp3",
+        "audio/wav": "wav",
+        "audio/opus": "opus",
+        "audio/aac": "aac",
+        "audio/flac": "flac",
+    }
+    return mapping.get((content_type or "").split(";", 1)[0].lower(), "mp3")
 
 
 def _next_quiz_payload(course: str, level: int) -> dict:

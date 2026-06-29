@@ -147,6 +147,31 @@ class GeneratedResource(Base):
     course: Mapped[Course] = relationship()
 
 
+class ResourceAudio(Base):
+    __tablename__ = "resource_audios"
+    __table_args__ = (
+        UniqueConstraint("resource_id", "model", "voice", "text_hash", name="uq_resource_audio_variant"),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    resource_id: Mapped[int] = mapped_column(ForeignKey("generated_resources.id"), index=True)
+    student_id: Mapped[str] = mapped_column(String(100), index=True)
+    course_id: Mapped[int] = mapped_column(ForeignKey("courses.id"), index=True)
+    model: Mapped[str] = mapped_column(String(120), index=True)
+    voice: Mapped[str] = mapped_column(String(120), index=True)
+    text_hash: Mapped[str] = mapped_column(String(64), index=True)
+    content_type: Mapped[str] = mapped_column(String(100), default="audio/mpeg")
+    bucket_name: Mapped[str | None] = mapped_column(String(200))
+    object_name: Mapped[str | None] = mapped_column(String(1000))
+    storage_url: Mapped[str | None] = mapped_column(String(1200))
+    file_size: Mapped[int | None] = mapped_column(BigInteger)
+    metadata_json: Mapped[dict[str, Any]] = mapped_column(JSONB, default=dict)
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+
+    resource: Mapped[GeneratedResource] = relationship()
+    course: Mapped[Course] = relationship()
+
+
 class LearningPath(Base):
     __tablename__ = "learning_paths"
 
