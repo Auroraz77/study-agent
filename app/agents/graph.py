@@ -188,21 +188,32 @@ class LearningAgentGraph:
         }
 
     def _planner_agent(self, state: LearningState) -> dict[str, Any]:
-        fallback = {
-            "title": f"{state.get('course', '课程')}个性化学习路径",
-            "stages": [
-                {"name": "诊断", "goal": "明确基础与薄弱点", "resources": ["个性化讲解文档"]},
-                {"name": "练习", "goal": "通过题目巩固", "resources": ["个性化练习题"]},
-                {"name": "实践", "goal": "完成代码案例", "resources": ["代码实操案例"]},
-            ],
-        }
-        system = "你是学习路径规划智能体。请只输出 JSON，包含 title 和 stages。"
+        fallback = _fallback_learning_path(
+            course=state.get("course", "课程"),
+            profile=state.get("student_profile", {}),
+            resources=state.get("resources", []),
+        )
+        system = (
+            "你是学习路径规划智能体。请只输出 JSON，不要输出 Markdown。"
+            "JSON 必须包含 title 和 stages。stages 必须是 4 个阶段。"
+            "每个阶段必须包含 name, goal, action, resources, time。"
+            "name 必须是具体学习任务名，禁止使用“学习阶段”“阶段一”“阶段二”“诊断”“练习”“实践”等模板词。"
+            "goal 必须结合学生薄弱点、课程主题和已生成资源，写成可执行目标。"
+            "action 写学生下一步具体做什么。resources 只能从已生成资源标题中选择。time 给出建议时长。"
+        )
         user = (
             f"学生画像：{json.dumps(state.get('student_profile', {}), ensure_ascii=False)}\n"
             f"课程资料：{_format_context(state.get('course_context', []))}\n"
-            f"已生成资源：{json.dumps(state.get('resources', []), ensure_ascii=False)}"
+            f"已生成资源：{json.dumps(_resource_brief(state.get('resources', [])), ensure_ascii=False)}\n"
+            "请生成适合该学生的学习顺序：先理解，再练习，再实操，再复盘。"
         )
         path = self.llm.chat_json(system, user, fallback=fallback)
+        path = _normalize_learning_path(
+            path=path,
+            course=state.get("course", "课程"),
+            profile=state.get("student_profile", {}),
+            resources=state.get("resources", []),
+        )
         return {"learning_path": path}
 
     def _summary_agent(self, state: LearningState) -> dict[str, Any]:
@@ -302,6 +313,118 @@ def _format_context(context: list[dict[str, Any]]) -> str:
         f"[{item['filename']}#{item['chunk_index']}] {item['text']}"
         for item in context
     )
+
+
+def _resource_brief(resources: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    return [
+        {
+            "type": resource.get("type"),
+            "title": resource.get("title"),
+            "agent": resource.get("agent"),
+            "modality": resource.get("modality"),
+        }
+        for resource in resources
+    ]
+
+
+def _fallback_learning_path(course: str, profile: dict[str, Any], resources: list[dict[str, Any]]) -> dict[str, Any]:
+    resource_titles = [resource.get("title", "") for resource in resources if resource.get("title")]
+    weaknesses = _join_profile_items(profile.get("weaknesses")) or "当前薄弱知识点"
+    style = _join_profile_items(profile.get("learning_style")) or "适合自己的学习方式"
+    time_budget = profile.get("time_budget") or "本周学习时间"
+    return {
+        "title": f"{course}个性化学习路径",
+        "stages": [
+            {
+                "name": f"建立{course}核心概念框架",
+                "goal": f"围绕{weaknesses}先搭建概念地图，避免直接进入题目造成理解断层。",
+                "action": f"先阅读讲解文档的学习目标、先修补洞和核心概念部分，用{style}记录关键公式或流程。",
+                "resources": _pick_resources(resource_titles, ["讲解", "文档"], fallback=resource_titles[:1]),
+                "time": _stage_time(time_budget, 0),
+            },
+            {
+                "name": "完成分层练习并定位错因",
+                "goal": "用选择题、判断题和简答题检查概念理解，找出仍然混淆的考点。",
+                "action": "完成个性化练习题，提交后重点查看错题分析，把错因归类为概念不清、公式不会用或场景判断错误。",
+                "resources": _pick_resources(resource_titles, ["练习", "题"], fallback=resource_titles[1:2]),
+                "time": _stage_time(time_budget, 1),
+            },
+            {
+                "name": "用代码案例验证模型流程",
+                "goal": "把讲解中的概念迁移到可运行代码，观察输入、训练、评估输出之间的关系。",
+                "action": "运行代码实操案例，修改一个参数或数据字段，比较指标变化并记录现象。",
+                "resources": _pick_resources(resource_titles, ["代码", "案例", "实操"], fallback=resource_titles[2:3]),
+                "time": _stage_time(time_budget, 2),
+            },
+            {
+                "name": "复盘薄弱点并安排下一轮提升",
+                "goal": "把错题、代码现象和讲解文档重新对应，形成下一次学习的重点清单。",
+                "action": "回看错题分析和代码输出，总结 3 个已掌握点、2 个未掌握点，并继续追问学习问答。",
+                "resources": resource_titles[:3],
+                "time": _stage_time(time_budget, 3),
+            },
+        ],
+    }
+
+
+def _normalize_learning_path(
+    path: dict[str, Any],
+    course: str,
+    profile: dict[str, Any],
+    resources: list[dict[str, Any]],
+) -> dict[str, Any]:
+    fallback = _fallback_learning_path(course, profile, resources)
+    stages = path.get("stages") if isinstance(path, dict) else None
+    if not isinstance(stages, list) or not stages:
+        return fallback
+
+    normalized = []
+    for index in range(4):
+        fallback_stage = fallback["stages"][index]
+        stage = stages[index] if index < len(stages) and isinstance(stages[index], dict) else {}
+        name = str(stage.get("name") or "").strip()
+        if _is_generic_stage_name(name):
+            name = fallback_stage["name"]
+        normalized.append(
+            {
+                "name": name,
+                "goal": str(stage.get("goal") or fallback_stage["goal"]).strip(),
+                "action": str(stage.get("action") or fallback_stage["action"]).strip(),
+                "resources": stage.get("resources") if isinstance(stage.get("resources"), list) else fallback_stage["resources"],
+                "time": str(stage.get("time") or fallback_stage["time"]).strip(),
+            }
+        )
+    return {
+        "title": str(path.get("title") or fallback["title"]).strip(),
+        "stages": normalized,
+    }
+
+
+def _is_generic_stage_name(name: str) -> bool:
+    cleaned = name.replace(" ", "")
+    return not cleaned or cleaned in {"学习阶段", "阶段", "阶段一", "阶段二", "阶段三", "阶段四", "诊断", "练习", "实践"}
+
+
+def _pick_resources(titles: list[str], keywords: list[str], fallback: list[str]) -> list[str]:
+    picked = [title for title in titles if any(keyword in title for keyword in keywords)]
+    return picked or fallback or titles[:1]
+
+
+def _join_profile_items(value: Any) -> str:
+    if isinstance(value, list):
+        return "、".join(str(item) for item in value if item)
+    return str(value or "")
+
+
+def _stage_time(time_budget: Any, index: int) -> str:
+    text = str(time_budget or "")
+    match = re.search(r"(\d+(?:\.\d+)?)", text)
+    if not match:
+        return ["约 30 分钟", "约 40 分钟", "约 60 分钟", "约 30 分钟"][index]
+    total = float(match.group(1))
+    ratios = [0.25, 0.25, 0.35, 0.15]
+    hours = max(0.5, round(total * ratios[index], 1))
+    return f"约 {hours:g} 小时"
 
 
 def _resource_contract(resource_type: str) -> str:

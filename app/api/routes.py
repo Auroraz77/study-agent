@@ -1,14 +1,17 @@
 from __future__ import annotations
 
 from difflib import SequenceMatcher
+from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
+from fastapi.responses import StreamingResponse
 from sqlalchemy.exc import IntegrityError
 
 from app.agents.graph import LearningAgentGraph, _build_quiz_items
 from app.auth import create_access_token, get_current_user, hash_password, user_to_dict, verify_password
 from app.db.database import init_db
 from app.db.models import User
+from app.export_ppt import build_learning_pptx, suggested_filename
 from app.db.repository import LearningRepository
 from app.models import (
     AskQuestionRequest,
@@ -109,6 +112,25 @@ def learn(payload: LearningRequest, current_user: User = Depends(get_current_use
         student_id=current_user.student_id,
         course=payload.course,
         message=payload.message,
+    )
+
+
+@router.post("/export/pptx")
+def export_pptx(payload: dict, current_user: User = Depends(get_current_user)) -> StreamingResponse:
+    resources = payload.get("resources")
+    if not isinstance(resources, list) or not resources:
+        raise HTTPException(status_code=400, detail="请先生成学习资源，再导出 PPT")
+
+    pptx = build_learning_pptx(payload, student_name=current_user.username)
+    filename = suggested_filename(payload.get("course"))
+    quoted = quote(filename)
+    headers = {
+        "Content-Disposition": f"attachment; filename*=UTF-8''{quoted}",
+    }
+    return StreamingResponse(
+        pptx,
+        media_type="application/vnd.openxmlformats-officedocument.presentationml.presentation",
+        headers=headers,
     )
 
 
@@ -476,6 +498,45 @@ def dashboard_paths(limit: int = 50, current_user: User = Depends(get_current_us
         return {"items": repo.dashboard_paths(limit=limit, student_id=current_user.student_id)}
     finally:
         repo.close()
+
+
+@router.get("/dashboard/sessions")
+def dashboard_sessions(limit: int = 12, current_user: User = Depends(get_current_user)) -> dict:
+    repo = LearningRepository()
+    try:
+        return {"items": repo.dashboard_sessions(limit=limit, student_id=current_user.student_id)}
+    finally:
+        repo.close()
+
+
+@router.get("/dashboard/sessions/{session_id}")
+def dashboard_session_detail(session_id: int, current_user: User = Depends(get_current_user)) -> dict:
+    repo = LearningRepository()
+    try:
+        session = repo.dashboard_session_detail(path_id=session_id, student_id=current_user.student_id)
+        if not session:
+            raise HTTPException(status_code=404, detail="学习记录不存在")
+        _backfill_legacy_quiz_resources(session)
+        return session
+    finally:
+        repo.close()
+
+
+def _backfill_legacy_quiz_resources(session: dict) -> None:
+    profile = session.get("profile") or {}
+    course = session.get("course") or ""
+    for resource in session.get("resources") or []:
+        if resource.get("type") != "quiz":
+            continue
+        if isinstance(resource.get("quiz"), list) and resource["quiz"]:
+            continue
+        resource["quiz"] = _build_quiz_items(
+            profile=profile,
+            user_input=course,
+            level=1,
+        )
+        resource["content"] = ""
+        resource["legacy_backfilled"] = True
 
 
 @router.get("/dashboard/events")

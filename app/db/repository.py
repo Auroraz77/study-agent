@@ -235,7 +235,11 @@ class LearningRepository:
                     title=resource.get("title", "未命名资源"),
                     agent=resource.get("agent"),
                     content=resource.get("content", ""),
-                    generation_params={"source": "langgraph"},
+                    generation_params={
+                        "source": "langgraph",
+                        "modality": resource.get("modality"),
+                        "quiz": resource.get("quiz"),
+                    },
                 )
             )
 
@@ -465,6 +469,82 @@ class LearningRepository:
             )
         return paths
 
+    def dashboard_sessions(self, limit: int = 12, student_id: str | None = None) -> list[dict[str, Any]]:
+        stmt = (
+            select(LearningPath, Course.name)
+            .join(Course, Course.id == LearningPath.course_id)
+            .order_by(LearningPath.created_at.desc())
+        )
+        if student_id:
+            stmt = stmt.where(LearningPath.student_id == student_id)
+        stmt = stmt.limit(limit)
+
+        sessions = []
+        for path, course in self.session.execute(stmt).all():
+            resources = self._resources_for_path_session(path)
+            stages = (path.path_json or {}).get("stages", [])
+            sessions.append(
+                {
+                    "id": path.id,
+                    "student_id": path.student_id,
+                    "course": course,
+                    "title": (path.path_json or {}).get("title") or course,
+                    "created_at": _iso(path.created_at),
+                    "updated_at": _iso(path.updated_at),
+                    "stage_count": len(stages) if isinstance(stages, list) else 0,
+                    "resource_count": len(resources),
+                    "resource_titles": [resource.title for resource in resources],
+                    "preview": _session_preview(resources, path.path_json or {}),
+                }
+            )
+        return sessions
+
+    def dashboard_session_detail(self, path_id: int, student_id: str) -> dict[str, Any] | None:
+        row = self.session.execute(
+            select(LearningPath, Course.name)
+            .join(Course, Course.id == LearningPath.course_id)
+            .where(LearningPath.id == path_id, LearningPath.student_id == student_id)
+        ).first()
+        if not row:
+            return None
+
+        path, course = row
+        resources = self._resources_for_path_session(path)
+        profile = self.session.scalar(
+            select(StudentProfile).where(
+                StudentProfile.student_id == student_id,
+                StudentProfile.course_id == path.course_id,
+            )
+        )
+        resource_payload = [_resource_to_payload(resource) for resource in resources]
+        return {
+            "session_id": path.id,
+            "course": course,
+            "profile": (profile.profile_json if profile else {}) or {},
+            "learning_path": path.path_json or {},
+            "resources": resource_payload,
+            "retrieved_context": [],
+            "final_answer": _session_final_answer(course, resource_payload, path.path_json or {}),
+            "created_at": _iso(path.created_at),
+        }
+
+    def _resources_for_path_session(self, path: LearningPath) -> list[GeneratedResource]:
+        stmt = (
+            select(GeneratedResource)
+            .where(
+                GeneratedResource.student_id == path.student_id,
+                GeneratedResource.course_id == path.course_id,
+            )
+            .order_by(GeneratedResource.created_at.asc())
+        )
+        resources = []
+        for resource in self.session.scalars(stmt).all():
+            if resource.created_at and path.created_at:
+                distance = abs((resource.created_at - path.created_at).total_seconds())
+                if distance <= 300:
+                    resources.append(resource)
+        return resources
+
     def dashboard_events(self, limit: int = 80, student_id: str | None = None) -> list[dict[str, Any]]:
         stmt = (
             select(LearningEvent, Course.name)
@@ -553,3 +633,50 @@ def _as_list(value: Any) -> list[str]:
 
 def _iso(value: Any) -> str | None:
     return value.isoformat(sep=" ", timespec="seconds") if value else None
+
+
+def _resource_to_payload(resource: GeneratedResource) -> dict[str, Any]:
+    params = resource.generation_params or {}
+    payload = {
+        "id": resource.id,
+        "type": resource.resource_type,
+        "title": resource.title,
+        "agent": resource.agent,
+        "modality": params.get("modality") or _infer_modality(resource.resource_type),
+        "content": resource.content or "",
+        "created_at": _iso(resource.created_at),
+    }
+    quiz = params.get("quiz")
+    if isinstance(quiz, list):
+        payload["quiz"] = quiz
+    return payload
+
+
+def _infer_modality(resource_type: str | None) -> str:
+    mapping = {
+        "explanation_doc": "text",
+        "quiz": "assessment",
+        "code_case": "code",
+    }
+    return mapping.get(resource_type or "", "text")
+
+
+def _session_preview(resources: list[GeneratedResource], path_json: dict[str, Any]) -> str:
+    if resources:
+        text = resources[0].content or ""
+        return re.sub(r"\s+", " ", text).strip()[:160]
+    stages = path_json.get("stages", [])
+    if isinstance(stages, list) and stages:
+        return " / ".join(str(stage.get("name", "")) for stage in stages[:3] if isinstance(stage, dict))
+    return "历史学习记录"
+
+
+def _session_final_answer(course: str, resources: list[dict[str, Any]], path_json: dict[str, Any]) -> str:
+    titles = "、".join(resource.get("title", "") for resource in resources if resource.get("title")) or "暂无资源"
+    path_title = path_json.get("title") or "个性化学习路径"
+    return (
+        f"已打开《{course}》历史学习记录。\n\n"
+        f"本次记录包含资源：{titles}。\n"
+        f"学习路径：{path_title}。\n\n"
+        "你可以继续查看讲解文档、完成练习题或导出 PPT。"
+    )

@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>个性化学习多智能体系统</title>
-    <link rel="stylesheet" href="/styles.css?v=qa17" />
+    <link rel="stylesheet" href="/styles.css?v=path2" />
   </head>
   <body>
     <div class="app-shell">
@@ -167,7 +167,10 @@
             <section class="section-block">
               <div class="section-heading">
                 <h3>个性化资源</h3>
-                <div id="resourceTabs" class="tabs"></div>
+                <div class="resource-heading-actions">
+                  <div id="resourceTabs" class="tabs"></div>
+                  <button id="exportPptBtn" class="secondary-btn export-ppt-btn" type="button" disabled>导出PPT</button>
+                </div>
               </div>
               <article id="resourceContent" class="resource-view">暂无资源。</article>
             </section>
@@ -204,6 +207,14 @@
         <section id="dashboardMetrics" class="summary-band dashboard-metrics"></section>
 
         <section class="dashboard-layout">
+          <section class="section-block">
+            <div class="section-heading">
+              <h3>最近学习记录</h3>
+              <span class="muted">点击卡片可再次学习</span>
+            </div>
+            <div id="sessionsList" class="session-gallery"></div>
+          </section>
+
           <section class="section-block">
             <div class="section-heading">
               <h3>课程资料管理</h3>
@@ -247,43 +258,6 @@
             <div id="profilesList" class="record-list"></div>
           </section>
 
-          <section class="section-block">
-            <div class="section-heading">
-              <h3>生成资源历史</h3>
-              <span class="muted">generated_resources</span>
-            </div>
-            <div id="resourcesList" class="record-list"></div>
-          </section>
-
-          <section class="section-block">
-            <div class="section-heading">
-              <h3>学习路径历史</h3>
-              <span class="muted">learning_paths</span>
-            </div>
-            <div id="pathsList" class="record-list"></div>
-          </section>
-
-          <section class="section-block">
-            <div class="section-heading">
-              <h3>学习行为日志</h3>
-              <span class="muted">learning_events</span>
-            </div>
-            <div class="data-table-wrap">
-              <table class="data-table">
-                <thead>
-                  <tr>
-                    <th>ID</th>
-                    <th>学生</th>
-                    <th>课程</th>
-                    <th>事件</th>
-                    <th>时间</th>
-                    <th>数据</th>
-                  </tr>
-                </thead>
-                <tbody id="eventsTable"></tbody>
-              </table>
-            </div>
-          </section>
         </section>
       </main>
     </div>
@@ -300,6 +274,6 @@
       };
     </script>
     <script defer src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
-    <script defer src="/app.js?v=qa17"></script>
+    <script defer src="/app.js?v=path2"></script>
   </body>
 </html>

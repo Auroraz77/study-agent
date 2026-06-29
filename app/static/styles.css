@@ -879,6 +879,24 @@ button:disabled {
   gap: 8px;
 }
 
+.resource-heading-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  min-width: 0;
+}
+
+.resource-heading-actions .tabs {
+  justify-content: flex-end;
+}
+
+.export-ppt-btn {
+  flex: 0 0 auto;
+  min-height: 34px;
+  padding: 0 12px;
+}
+
 .tab {
   min-height: 34px;
   padding: 0 12px;
@@ -1266,6 +1284,17 @@ button:disabled {
   line-height: 1.5;
 }
 
+.stage small {
+  display: inline-flex;
+  margin-top: 5px;
+  border-radius: 999px;
+  padding: 3px 8px;
+  color: #0f766e;
+  background: #ecfdf3;
+  font-size: 12px;
+  font-weight: 850;
+}
+
 .context-list {
   display: grid;
   gap: 12px;
@@ -1297,6 +1326,118 @@ button:disabled {
 
 .dashboard-metrics {
   grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.session-gallery {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(230px, 1fr));
+  gap: 18px;
+  padding: 18px;
+}
+
+.session-card {
+  display: grid;
+  gap: 10px;
+  min-height: 0;
+  border: 0;
+  border-radius: 0;
+  padding: 0;
+  color: var(--ink);
+  background: transparent;
+  text-align: left;
+}
+
+.session-card:hover .session-preview {
+  transform: translateY(-3px);
+  box-shadow: 0 18px 38px rgba(24, 32, 42, 0.14);
+}
+
+.session-preview {
+  display: grid;
+  align-content: start;
+  gap: 10px;
+  min-height: 132px;
+  border: 1px solid rgba(217, 222, 231, 0.72);
+  border-radius: 8px;
+  padding: 18px;
+  overflow: hidden;
+  transition:
+    transform 0.18s ease,
+    box-shadow 0.18s ease;
+}
+
+.session-preview span {
+  color: #667085;
+  font-size: 12px;
+  font-weight: 850;
+}
+
+.session-preview strong {
+  font-size: 16px;
+  line-height: 1.35;
+}
+
+.session-preview p {
+  display: -webkit-box;
+  margin: 0;
+  overflow: hidden;
+  color: #475467;
+  font-size: 13px;
+  line-height: 1.55;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+}
+
+.session-tone-1 {
+  background: linear-gradient(135deg, #f8fbff, #e7f0ff);
+}
+
+.session-tone-2 {
+  background: linear-gradient(135deg, #fffaf3, #f4efe5);
+}
+
+.session-tone-3 {
+  background: linear-gradient(135deg, #f7fbf8, #e4f5ed);
+}
+
+.session-tone-4 {
+  background: linear-gradient(135deg, #fbf7ff, #eee7ff);
+}
+
+.session-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.session-meta span {
+  border-radius: 999px;
+  padding: 4px 9px;
+  color: #6d28d9;
+  background: #f3e8ff;
+  font-size: 12px;
+  font-weight: 850;
+}
+
+.session-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 16px;
+}
+
+.session-card small {
+  display: block;
+  overflow: hidden;
+  color: var(--muted);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.session-empty {
+  padding: 10px 0;
+  color: var(--muted);
 }
 
 .data-table-wrap {

@@ -7,6 +7,7 @@ const kbStatus = document.getElementById("kbStatus");
 const refreshDashboardBtn = document.getElementById("refreshDashboardBtn");
 const dashboardSearchBtn = document.getElementById("dashboardSearchBtn");
 const dashboardStatus = document.getElementById("dashboardStatus");
+const exportPptBtn = document.getElementById("exportPptBtn");
 const askBtn = document.getElementById("askBtn");
 const qaQuestion = document.getElementById("qaQuestion");
 const qaHistory = document.getElementById("qaHistory");
@@ -31,6 +32,9 @@ const authPassword = document.getElementById("authPassword");
 const authStudentId = document.getElementById("authStudentId");
 
 let currentResources = [];
+let currentProfile = {};
+let currentLearningPath = {};
+let currentFinalAnswer = "";
 let dashboardLoaded = false;
 let authToken = localStorage.getItem("learning_auth_token") || "";
 let currentUser = null;
@@ -45,6 +49,7 @@ seedBtn.addEventListener("click", seedKnowledge);
 uploadBtn.addEventListener("click", uploadKnowledge);
 refreshDashboardBtn.addEventListener("click", loadDashboard);
 dashboardSearchBtn.addEventListener("click", searchDashboardKnowledge);
+exportPptBtn.addEventListener("click", exportCurrentPpt);
 askBtn.addEventListener("click", askQuestion);
 qaModeTrigger.addEventListener("click", toggleQaModeMenu);
 qaModeButtons.forEach((button) => {
@@ -332,7 +337,11 @@ function renderQaMessage(entry) {
 }
 
 function renderResult(result) {
-  document.getElementById("finalAnswer").textContent = result.final_answer || "已生成。";
+  currentProfile = result.profile || {};
+  currentLearningPath = result.learning_path || {};
+  currentFinalAnswer = result.final_answer || "已生成。";
+
+  document.getElementById("finalAnswer").textContent = currentFinalAnswer;
   renderProfile(result.profile || {});
   renderContext(result.retrieved_context || []);
   renderResources(result.resources || []);
@@ -388,6 +397,7 @@ function renderResources(resources) {
   currentResources = resources;
   const tabs = document.getElementById("resourceTabs");
   const content = document.getElementById("resourceContent");
+  exportPptBtn.disabled = !resources.length;
 
   if (!resources.length) {
     tabs.innerHTML = "";
@@ -414,6 +424,54 @@ function renderResources(resources) {
   });
 
   showResource(0);
+}
+
+async function exportCurrentPpt() {
+  if (!requireLogin()) return;
+  if (!currentResources.length) {
+    setStatus("error", "请先生成资源");
+    return;
+  }
+
+  exportPptBtn.disabled = true;
+  exportPptBtn.textContent = "导出中";
+  setStatus("running", "正在导出PPT");
+
+  try {
+    const course = document.getElementById("course").value.trim() || "机器学习";
+    const response = await fetch("/api/export/pptx", {
+      method: "POST",
+      headers: authHeaders(true),
+      body: JSON.stringify({
+        course,
+        profile: currentProfile,
+        resources: currentResources,
+        learning_path: currentLearningPath,
+        final_answer: currentFinalAnswer,
+      }),
+    });
+    if (!response.ok) {
+      const detail = await response.json().catch(() => ({}));
+      throw new Error(detail.detail || `导出失败：${response.status}`);
+    }
+
+    const blob = await response.blob();
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `${sanitizeFilename(course)}.pptx`;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(url);
+    setStatus("done", "PPT已导出");
+  } catch (error) {
+    setStatus("error", "导出失败");
+    document.getElementById("finalAnswer").textContent = error.message;
+  } finally {
+    exportPptBtn.disabled = !currentResources.length;
+    exportPptBtn.textContent = "导出PPT";
+  }
 }
 
 function showResource(index) {
@@ -822,7 +880,9 @@ function renderPath(path) {
         <div class="stage">
           <strong>${index + 1}. ${escapeHtml(stage.name || "学习阶段")}</strong>
           <p>${escapeHtml(stage.goal || "")}</p>
+          ${stage.action ? `<p>${escapeHtml(stage.action)}</p>` : ""}
           <p>${escapeHtml(resources)}</p>
+          ${stage.time ? `<small>${escapeHtml(stage.time)}</small>` : ""}
         </div>
       `;
     })
@@ -853,21 +913,17 @@ async function loadDashboard() {
   if (!requireLogin()) return;
   setDashboardStatus("running", "加载中");
   try {
-    const [summary, files, profiles, resources, paths, events] = await Promise.all([
+    const [summary, sessions, files, profiles] = await Promise.all([
       getJson("/api/dashboard/summary"),
+      getJson("/api/dashboard/sessions?limit=12"),
       getJson("/api/dashboard/files?limit=80"),
       getJson("/api/dashboard/profiles?limit=80"),
-      getJson("/api/dashboard/resources?limit=80"),
-      getJson("/api/dashboard/paths?limit=80"),
-      getJson("/api/dashboard/events?limit=100"),
     ]);
 
     renderDashboardMetrics(summary);
+    renderLearningSessions(sessions.items || []);
     renderFilesTable(files.items || []);
     renderProfiles(profiles.items || []);
-    renderResourceHistory(resources.items || []);
-    renderPathHistory(paths.items || []);
-    renderEventsTable(events.items || []);
     await searchDashboardKnowledge();
 
     dashboardLoaded = true;
@@ -901,6 +957,70 @@ function renderDashboardMetrics(summary) {
       `,
     )
     .join("");
+}
+
+function renderLearningSessions(items) {
+  const container = document.getElementById("sessionsList");
+  if (!container) return;
+  if (!items.length) {
+    container.innerHTML = `<div class="session-empty">暂无历史学习记录。生成一次学习方案后，这里会出现可再次学习的卡片。</div>`;
+    return;
+  }
+
+  container.innerHTML = items
+    .map((item, index) => {
+      const titles = Array.isArray(item.resource_titles) ? item.resource_titles.slice(0, 3).join("、") : "";
+      return `
+        <button class="session-card" type="button" data-session-id="${escapeHtml(item.id)}">
+          <div class="session-preview session-tone-${(index % 4) + 1}">
+            <span>${escapeHtml(item.course || "课程")}</span>
+            <strong>${escapeHtml(item.title || item.course || "学习记录")}</strong>
+            <p>${escapeHtml(item.preview || titles || "点击继续学习")}</p>
+          </div>
+          <div class="session-meta">
+            <span>${escapeHtml(item.resource_count || 0)} 项资源</span>
+            <span>${escapeHtml(formatRelativeDate(item.created_at))}</span>
+          </div>
+          <strong class="session-title">${escapeHtml(item.course || "历史学习")}</strong>
+          <small>${escapeHtml(titles || `${item.stage_count || 0} 个学习阶段`)}</small>
+        </button>
+      `;
+    })
+    .join("");
+
+  container.querySelectorAll(".session-card").forEach((card) => {
+    card.addEventListener("click", () => openLearningSession(card.dataset.sessionId));
+  });
+}
+
+async function openLearningSession(sessionId) {
+  if (!sessionId) return;
+  setDashboardStatus("running", "打开学习记录");
+  try {
+    const result = await getJson(`/api/dashboard/sessions/${encodeURIComponent(sessionId)}`);
+    document.getElementById("course").value = result.course || document.getElementById("course").value;
+    renderResult(result);
+    switchView("workspaceView");
+    document.getElementById("resourceContent")?.scrollIntoView({behavior: "smooth", block: "start"});
+    setStatus("done", "已打开历史记录");
+    setDashboardStatus("done", "已打开");
+  } catch (error) {
+    setDashboardStatus("error", "打开失败");
+    alert(error.message);
+  }
+}
+
+function formatRelativeDate(value) {
+  if (!value) return "";
+  const date = new Date(value.replace(" ", "T"));
+  if (Number.isNaN(date.getTime())) return value;
+  const now = new Date();
+  const diffMs = now - date;
+  const diffDays = Math.floor(diffMs / 86400000);
+  if (diffDays <= 0) return "今天";
+  if (diffDays === 1) return "昨天";
+  if (diffDays < 7) return `${diffDays} 天前`;
+  return `${date.getMonth() + 1}/${date.getDate()}`;
 }
 
 function renderFilesTable(items) {
@@ -1412,6 +1532,14 @@ function formatBytes(value) {
   if (size < 1024) return `${size} B`;
   if (size < 1024 * 1024) return `${(size / 1024).toFixed(1)} KB`;
   return `${(size / 1024 / 1024).toFixed(1)} MB`;
+}
+
+function sanitizeFilename(value) {
+  return String(value || "learning-plan")
+    .replace(/[\\/:*?"<>|]+/g, "_")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 80) || "learning-plan";
 }
 
 function shortType(type) {
