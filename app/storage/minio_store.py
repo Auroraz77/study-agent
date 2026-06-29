@@ -62,6 +62,40 @@ class MinioStorage:
             response.close()
             response.release_conn()
 
+    def object_size(self, object_name: str, bucket: str | None = None) -> int:
+        stat = self.client.stat_object(bucket or self.bucket, object_name)
+        return stat.size
+
+    def iter_object(
+        self,
+        object_name: str,
+        bucket: str | None = None,
+        offset: int = 0,
+        length: int | None = None,
+        chunk_size: int = 1024 * 256,
+    ):
+        response = self.client.get_object(
+            bucket or self.bucket,
+            object_name,
+            offset=offset,
+            length=length,
+        )
+        try:
+            remaining = length
+            while True:
+                read_size = chunk_size if remaining is None else min(chunk_size, remaining)
+                if read_size <= 0:
+                    break
+                chunk = response.read(read_size)
+                if not chunk:
+                    break
+                yield chunk
+                if remaining is not None:
+                    remaining -= len(chunk)
+        finally:
+            response.close()
+            response.release_conn()
+
 
 def _safe_path_part(value: str) -> str:
     cleaned = "".join(

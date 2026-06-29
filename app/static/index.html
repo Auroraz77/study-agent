@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>个性化学习多智能体系统</title>
-    <link rel="stylesheet" href="/styles.css?v=student5" />
+    <link rel="stylesheet" href="/styles.css?v=student12" />
   </head>
   <body>
     <div class="app-shell">
@@ -255,7 +255,7 @@
               <h3>我的课程资料</h3>
               <span class="muted">已解析的学习资料</span>
             </div>
-            <div id="filesTable" class="file-card-grid"></div>
+            <div id="filesTable" class="file-list"></div>
           </section>
 
           <section class="section-block">
@@ -279,6 +279,41 @@
 
         </section>
       </main>
+
+      <div id="chunkDetailModal" class="detail-modal hidden" role="dialog" aria-modal="true" aria-labelledby="chunkDetailTitle">
+        <div class="detail-dialog">
+          <div class="detail-head">
+            <div>
+              <p id="chunkDetailMeta" class="eyebrow">Course Material</p>
+              <h2 id="chunkDetailTitle">资料片段</h2>
+            </div>
+            <button id="chunkCloseBtn" class="icon-btn" type="button" aria-label="关闭">×</button>
+          </div>
+          <div class="detail-actions">
+            <button id="chunkPrevBtn" class="secondary-btn" type="button">上一段</button>
+            <button id="chunkNextBtn" class="secondary-btn" type="button">下一段</button>
+            <button id="chunkPreviewBtn" class="primary-btn" type="button">打开原文</button>
+          </div>
+          <div class="detail-body">
+            <article id="chunkDetailText" class="chunk-detail-text"></article>
+          </div>
+        </div>
+      </div>
+
+      <aside id="pdfSidePanel" class="pdf-side-panel hidden" aria-label="PDF 原文阅读栏">
+        <div class="pdf-side-head">
+          <div>
+            <p id="pdfSideMeta" class="eyebrow">PDF Preview</p>
+            <h2 id="pdfSideTitle">原文 PDF</h2>
+          </div>
+          <button id="pdfSideCloseBtn" class="icon-btn" type="button" aria-label="关闭 PDF 预览">×</button>
+        </div>
+        <div class="pdf-side-toolbar">
+          <span id="pdfSidePage">未指定页码</span>
+          <button id="pdfSideOpenBtn" class="secondary-btn" type="button">新窗口打开</button>
+        </div>
+        <iframe id="pdfSideFrame" title="PDF 原文预览"></iframe>
+      </aside>
     </div>
 
     <script>
@@ -293,6 +328,6 @@
       };
     </script>
     <script defer src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
-    <script defer src="/app.js?v=student5"></script>
+    <script defer src="/app.js?v=student12"></script>
   </body>
 </html>

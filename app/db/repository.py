@@ -116,6 +116,23 @@ class LearningRepository:
     def get_course_file(self, file_id: int) -> CourseFile | None:
         return self.session.get(CourseFile, file_id)
 
+    def delete_course_file(self, file_id: int) -> bool:
+        record = self.session.get(CourseFile, file_id)
+        if not record:
+            return False
+
+        chunks = self.session.scalars(
+            select(KnowledgeChunk).where(KnowledgeChunk.file_id == file_id)
+        ).all()
+        for chunk in chunks:
+            if chunk.embedding:
+                self.session.delete(chunk.embedding)
+            self.session.delete(chunk)
+
+        self.session.delete(record)
+        self.session.commit()
+        return True
+
     def add_knowledge_text(
         self,
         course_name: str,
@@ -124,7 +141,7 @@ class LearningRepository:
         file_id: int | None = None,
     ) -> list[dict[str, Any]]:
         course = self.get_or_create_course(course_name)
-        chunks = _chunk_text(text)
+        chunks = _chunk_text_with_page_numbers(text)
         added: list[dict[str, Any]] = []
         safe_name = Path(filename or "uploaded.txt").name
 
@@ -138,7 +155,7 @@ class LearningRepository:
                 self.session.delete(chunk)
             self.session.flush()
 
-        for index, chunk_text in enumerate(chunks):
+        for index, (chunk_text, page_number) in enumerate(chunks):
             chunk = KnowledgeChunk(
                 file_id=file_id,
                 course_id=course.id,
@@ -146,6 +163,7 @@ class LearningRepository:
                 source_filename=safe_name,
                 content=chunk_text,
                 token_count=len(chunk_text),
+                page_number=page_number,
                 metadata_json={},
             )
             self.session.add(chunk)
@@ -196,6 +214,40 @@ class LearningRepository:
             ]
 
         return self._lexical_search(query, top_k=top_k, course_name=course_name)
+
+    def get_chunk_detail(self, chunk_id: int) -> dict[str, Any] | None:
+        chunk = self.session.get(KnowledgeChunk, chunk_id)
+        if not chunk:
+            return None
+
+        previous_chunk = self.session.scalar(
+            select(KnowledgeChunk)
+            .where(
+                KnowledgeChunk.file_id == chunk.file_id,
+                KnowledgeChunk.chunk_index < chunk.chunk_index,
+            )
+            .order_by(KnowledgeChunk.chunk_index.desc())
+            .limit(1)
+        )
+        next_chunk = self.session.scalar(
+            select(KnowledgeChunk)
+            .where(
+                KnowledgeChunk.file_id == chunk.file_id,
+                KnowledgeChunk.chunk_index > chunk.chunk_index,
+            )
+            .order_by(KnowledgeChunk.chunk_index.asc())
+            .limit(1)
+        )
+        file_record = chunk.file
+        item = _chunk_to_item(chunk)
+        item.update(
+            {
+                "previous_chunk_id": previous_chunk.id if previous_chunk else None,
+                "next_chunk_id": next_chunk.id if next_chunk else None,
+                "file": _course_file_to_payload(file_record) if file_record else None,
+            }
+        )
+        return item
 
     def save_learning_result(
         self,
@@ -529,6 +581,19 @@ class LearningRepository:
             "created_at": _iso(path.created_at),
         }
 
+    def delete_dashboard_session(self, path_id: int, student_id: str) -> bool:
+        path = self.session.scalar(
+            select(LearningPath).where(LearningPath.id == path_id, LearningPath.student_id == student_id)
+        )
+        if not path:
+            return False
+
+        for resource in self._resources_for_path_session(path):
+            self.session.delete(resource)
+        self.session.delete(path)
+        self.session.commit()
+        return True
+
     def _resources_for_path_session(self, path: LearningPath) -> list[GeneratedResource]:
         stmt = (
             select(GeneratedResource)
@@ -575,11 +640,28 @@ class LearningRepository:
         return self.session.scalar(stmt) or 0
 
 
-def _chunk_text(text: str, size: int = 450, overlap: int = 80) -> list[str]:
+def _chunk_text_with_page_numbers(text: str, size: int = 450, overlap: int = 80) -> list[tuple[str, int | None]]:
     normalized = re.sub(r"\s+", " ", text).strip()
     if not normalized:
         return []
 
+    page_markers = [
+        (match.start(), int(match.group(1)))
+        for match in re.finditer(r"第\s*(\d+)\s*页", normalized)
+    ]
+    if page_markers:
+        chunks: list[tuple[str, int | None]] = []
+        for index, (marker_start, page_number) in enumerate(page_markers):
+            next_start = page_markers[index + 1][0] if index + 1 < len(page_markers) else len(normalized)
+            page_text = normalized[marker_start:next_start].strip()
+            for chunk_text in _chunk_normalized_text(page_text, size=size, overlap=overlap):
+                chunks.append((chunk_text, page_number))
+        return chunks
+
+    return [(chunk_text, None) for chunk_text in _chunk_normalized_text(normalized, size=size, overlap=overlap)]
+
+
+def _chunk_normalized_text(normalized: str, size: int = 450, overlap: int = 80) -> list[str]:
     chunks: list[str] = []
     start = 0
     while start < len(normalized):
@@ -589,6 +671,10 @@ def _chunk_text(text: str, size: int = 450, overlap: int = 80) -> list[str]:
             break
         start = max(0, end - overlap)
     return chunks
+
+
+def _chunk_text(text: str, size: int = 450, overlap: int = 80) -> list[str]:
+    return [chunk for chunk, _page_number in _chunk_text_with_page_numbers(text, size=size, overlap=overlap)]
 
 
 def _tokenize(text: str) -> set[str]:
@@ -611,17 +697,37 @@ def make_embedding(text: str) -> list[float]:
 
 
 def _chunk_to_item(chunk: KnowledgeChunk, score: float | None = None) -> dict[str, Any]:
+    file_record = chunk.file
+    file_type = file_record.file_type if file_record else None
+    filename = chunk.source_filename or (file_record.filename if file_record else "")
+    is_pdf = (file_type or "").lower() == "application/pdf" or filename.lower().endswith(".pdf")
     item = {
         "id": str(chunk.id),
-        "filename": chunk.source_filename,
+        "filename": filename,
         "chunk_index": chunk.chunk_index,
         "text": chunk.content,
         "course_id": chunk.course_id,
         "file_id": chunk.file_id,
+        "page_number": chunk.page_number,
+        "file_type": file_type,
+        "is_pdf": is_pdf,
     }
     if score is not None:
         item["score"] = score
     return item
+
+
+def _course_file_to_payload(record: CourseFile) -> dict[str, Any]:
+    return {
+        "id": record.id,
+        "filename": record.filename,
+        "file_type": record.file_type,
+        "file_size": record.file_size,
+        "bucket_name": record.bucket_name,
+        "object_name": record.object_name,
+        "parse_status": record.parse_status,
+        "created_at": _iso(record.created_at),
+    }
 
 
 def _as_list(value: Any) -> list[str]:

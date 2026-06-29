@@ -3,7 +3,7 @@ from __future__ import annotations
 from difflib import SequenceMatcher
 from urllib.parse import quote
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Request, UploadFile
 from fastapi.responses import StreamingResponse
 from sqlalchemy.exc import IntegrityError
 
@@ -349,6 +349,97 @@ def search_knowledge(payload: KnowledgeSearchRequest) -> dict:
     return {"items": store.search(payload.query, payload.top_k)}
 
 
+@router.get("/knowledge/chunks/{chunk_id}")
+def get_knowledge_chunk(chunk_id: int) -> dict:
+    repo = LearningRepository()
+    try:
+        item = repo.get_chunk_detail(chunk_id)
+        if not item:
+            raise HTTPException(status_code=404, detail="资料片段不存在")
+        return item
+    finally:
+        repo.close()
+
+
+@router.get("/knowledge/files/{file_id}/preview")
+def preview_knowledge_file(file_id: int, request: Request) -> StreamingResponse:
+    repo = LearningRepository()
+    try:
+        file_record = repo.get_course_file(file_id)
+        if not file_record:
+            raise HTTPException(status_code=404, detail="文件记录不存在")
+        if not file_record.object_name:
+            raise HTTPException(status_code=400, detail="文件没有可预览的存储对象")
+        is_pdf = (file_record.file_type or "").lower() == "application/pdf" or file_record.filename.lower().endswith(".pdf")
+        if not is_pdf:
+            raise HTTPException(status_code=400, detail="当前仅支持 PDF 原文预览")
+        file_size = storage.object_size(file_record.object_name, file_record.bucket_name)
+        quoted = quote(file_record.filename or "preview.pdf")
+        headers = {
+            "Content-Disposition": f"inline; filename*=UTF-8''{quoted}",
+            "Accept-Ranges": "bytes",
+            "Cache-Control": "public, max-age=3600",
+        }
+        range_header = request.headers.get("range")
+        if range_header:
+            start, end = _parse_range_header(range_header, file_size)
+            length = end - start + 1
+            headers.update(
+                {
+                    "Content-Range": f"bytes {start}-{end}/{file_size}",
+                    "Content-Length": str(length),
+                }
+            )
+            return StreamingResponse(
+                storage.iter_object(
+                    object_name=file_record.object_name,
+                    bucket=file_record.bucket_name,
+                    offset=start,
+                    length=length,
+                ),
+                media_type="application/pdf",
+                headers=headers,
+                status_code=206,
+            )
+
+        headers["Content-Length"] = str(file_size)
+        return StreamingResponse(
+            storage.iter_object(
+                object_name=file_record.object_name,
+                bucket=file_record.bucket_name,
+            ),
+            media_type="application/pdf",
+            headers=headers,
+        )
+    finally:
+        repo.close()
+
+
+def _parse_range_header(range_header: str, file_size: int) -> tuple[int, int]:
+    if not range_header.startswith("bytes="):
+        raise HTTPException(status_code=416, detail="不支持的 Range 请求")
+
+    range_value = range_header.removeprefix("bytes=").split(",", 1)[0].strip()
+    start_text, _, end_text = range_value.partition("-")
+    if not start_text and not end_text:
+        raise HTTPException(status_code=416, detail="无效的 Range 请求")
+
+    try:
+        if start_text:
+            start = int(start_text)
+            end = int(end_text) if end_text else file_size - 1
+        else:
+            suffix_length = int(end_text)
+            start = max(file_size - suffix_length, 0)
+            end = file_size - 1
+    except ValueError as exc:
+        raise HTTPException(status_code=416, detail="无效的 Range 请求") from exc
+
+    if start < 0 or end < start or start >= file_size:
+        raise HTTPException(status_code=416, detail="Range 超出文件范围")
+    return start, min(end, file_size - 1)
+
+
 def _answer_student_question(
     course: str,
     question: str,
@@ -473,6 +564,18 @@ def dashboard_files(limit: int = 50, current_user: User = Depends(get_current_us
         repo.close()
 
 
+@router.delete("/dashboard/files/{file_id}")
+def dashboard_delete_file(file_id: int, current_user: User = Depends(get_current_user)) -> dict:
+    repo = LearningRepository()
+    try:
+        deleted = repo.delete_course_file(file_id)
+        if not deleted:
+            raise HTTPException(status_code=404, detail="课程资料不存在")
+        return {"deleted": True, "file_id": file_id}
+    finally:
+        repo.close()
+
+
 @router.get("/dashboard/profiles")
 def dashboard_profiles(limit: int = 50, current_user: User = Depends(get_current_user)) -> dict:
     repo = LearningRepository()
@@ -518,6 +621,19 @@ def dashboard_session_detail(session_id: int, current_user: User = Depends(get_c
             raise HTTPException(status_code=404, detail="学习记录不存在")
         _backfill_legacy_quiz_resources(session)
         return session
+    finally:
+        repo.close()
+
+
+@router.delete("/dashboard/sessions/{session_id}")
+@router.post("/dashboard/sessions/{session_id}/delete")
+def dashboard_delete_session(session_id: int, current_user: User = Depends(get_current_user)) -> dict:
+    repo = LearningRepository()
+    try:
+        deleted = repo.delete_dashboard_session(path_id=session_id, student_id=current_user.student_id)
+        if not deleted:
+            raise HTTPException(status_code=404, detail="学习记录不存在")
+        return {"deleted": True, "session_id": session_id}
     finally:
         repo.close()
 

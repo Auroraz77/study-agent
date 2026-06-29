@@ -1,4 +1,5 @@
 const runBtn = document.getElementById("runBtn");
+const appShell = document.querySelector(".app-shell");
 const seedBtn = document.getElementById("seedBtn");
 const uploadBtn = document.getElementById("uploadBtn");
 const fileInput = document.getElementById("fileInput");
@@ -29,6 +30,21 @@ const authInfo = document.getElementById("authInfo");
 const authUsername = document.getElementById("authUsername");
 const authPassword = document.getElementById("authPassword");
 const authStudentId = document.getElementById("authStudentId");
+const chunkDetailModal = document.getElementById("chunkDetailModal");
+const chunkCloseBtn = document.getElementById("chunkCloseBtn");
+const chunkDetailMeta = document.getElementById("chunkDetailMeta");
+const chunkDetailTitle = document.getElementById("chunkDetailTitle");
+const chunkDetailText = document.getElementById("chunkDetailText");
+const chunkPrevBtn = document.getElementById("chunkPrevBtn");
+const chunkNextBtn = document.getElementById("chunkNextBtn");
+const chunkPreviewBtn = document.getElementById("chunkPreviewBtn");
+const pdfSidePanel = document.getElementById("pdfSidePanel");
+const pdfSideCloseBtn = document.getElementById("pdfSideCloseBtn");
+const pdfSideMeta = document.getElementById("pdfSideMeta");
+const pdfSideTitle = document.getElementById("pdfSideTitle");
+const pdfSidePage = document.getElementById("pdfSidePage");
+const pdfSideOpenBtn = document.getElementById("pdfSideOpenBtn");
+const pdfSideFrame = document.getElementById("pdfSideFrame");
 
 let currentResources = [];
 let currentProfile = {};
@@ -42,6 +58,9 @@ let currentSpeechAudio = null;
 let localSpeechParts = [];
 let localSpeechIndex = 0;
 let localSpeechStopped = true;
+let lastSearchItems = [];
+let activeChunkDetail = null;
+let pdfSideUrl = "";
 
 runBtn.addEventListener("click", submitComposer);
 seedBtn.addEventListener("click", seedKnowledge);
@@ -66,9 +85,28 @@ authModal.addEventListener("click", (event) => {
     closeAuthModal();
   }
 });
+chunkCloseBtn?.addEventListener("click", closeChunkDetail);
+chunkDetailModal?.addEventListener("click", (event) => {
+  if (event.target === chunkDetailModal) {
+    closeChunkDetail();
+  }
+});
+chunkPrevBtn?.addEventListener("click", () => openChunkDetail(activeChunkDetail?.previous_chunk_id));
+chunkNextBtn?.addEventListener("click", () => openChunkDetail(activeChunkDetail?.next_chunk_id));
+chunkPreviewBtn?.addEventListener("click", () => {
+  openPdfPreview(activeChunkDetail?.file_id, activeChunkDetail?.page_number, activeChunkDetail);
+});
+pdfSideCloseBtn?.addEventListener("click", closePdfSidePanel);
+pdfSideOpenBtn?.addEventListener("click", () => {
+  if (pdfSideUrl) {
+    window.open(pdfSideUrl, "_blank", "noopener");
+  }
+});
 document.addEventListener("keydown", (event) => {
   if (event.key === "Escape") {
     closeAuthModal();
+    closeChunkDetail();
+    closePdfSidePanel();
     accountMenu.classList.add("hidden");
     closeQaModeMenu();
   }
@@ -1023,26 +1061,48 @@ function renderLearningSessions(items) {
     .map((item, index) => {
       const titles = Array.isArray(item.resource_titles) ? item.resource_titles.slice(0, 3).join("、") : "";
       return `
-        <button class="session-card" type="button" data-session-id="${escapeHtml(item.id)}">
-          <div class="session-preview session-tone-${(index % 4) + 1}">
-            <span>${escapeHtml(item.course || "课程")}</span>
-            <strong>${escapeHtml(item.title || item.course || "学习记录")}</strong>
-            <p>${escapeHtml(item.preview || titles || "点击继续学习")}</p>
-          </div>
-          <div class="session-meta">
-            <span>${escapeHtml(item.resource_count || 0)} 项资源</span>
-            <span>${escapeHtml(formatRelativeDate(item.created_at))}</span>
-          </div>
-          <strong class="session-title">${escapeHtml(item.course || "历史学习")}</strong>
-          <small>${escapeHtml(titles || `${item.stage_count || 0} 个学习阶段`)}</small>
-        </button>
+        <article class="session-card" data-session-id="${escapeHtml(item.id)}">
+          <button class="session-delete-btn" type="button" aria-label="删除学习记录" data-session-id="${escapeHtml(item.id)}" data-title="${escapeHtml(item.title || item.course || "学习记录")}">×</button>
+          <button class="session-open-card" type="button" data-session-id="${escapeHtml(item.id)}">
+            <div class="session-preview session-tone-${(index % 4) + 1}">
+              <span>${escapeHtml(item.course || "课程")}</span>
+              <strong>${escapeHtml(item.title || item.course || "学习记录")}</strong>
+              <p>${escapeHtml(item.preview || titles || "点击继续学习")}</p>
+            </div>
+            <div class="session-caption">
+              <div class="session-meta">
+                <span>${escapeHtml(item.resource_count || 0)} 项资源</span>
+                <span>${escapeHtml(formatRelativeDate(item.created_at))}</span>
+              </div>
+              <strong class="session-title">${escapeHtml(item.course || "历史学习")}</strong>
+            </div>
+          </button>
+        </article>
       `;
     })
     .join("");
 
-  container.querySelectorAll(".session-card").forEach((card) => {
+  container.querySelectorAll(".session-open-card").forEach((card) => {
     card.addEventListener("click", () => openLearningSession(card.dataset.sessionId));
   });
+  container.querySelectorAll(".session-delete-btn").forEach((button) => {
+    button.addEventListener("click", (event) => {
+      event.stopPropagation();
+      deleteLearningSession(button.dataset.sessionId, button.dataset.title);
+    });
+  });
+}
+
+async function deleteLearningSession(sessionId, title) {
+  if (!sessionId) return;
+  const confirmed = confirm(`确定删除学习记录“${title || "学习记录"}”吗？\n该次生成的讲解文档、练习题和代码案例也会从数据库删除。`);
+  if (!confirmed) return;
+  try {
+    await postJson(`/api/dashboard/sessions/${encodeURIComponent(sessionId)}/delete`, {});
+    await loadDashboard();
+  } catch (error) {
+    alert(error.message);
+  }
 }
 
 async function openLearningSession(sessionId) {
@@ -1067,10 +1127,12 @@ function formatRelativeDate(value) {
   const date = new Date(value.replace(" ", "T"));
   if (Number.isNaN(date.getTime())) return value;
   const now = new Date();
-  const diffMs = now - date;
-  const diffDays = Math.floor(diffMs / 86400000);
-  if (diffDays <= 0) return "今天";
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const target = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+  const diffDays = Math.round((today - target) / 86400000);
+  if (diffDays === 0) return "今天";
   if (diffDays === 1) return "昨天";
+  if (diffDays < 0) return `${date.getMonth() + 1}/${date.getDate()}`;
   if (diffDays < 7) return `${diffDays} 天前`;
   return `${date.getMonth() + 1}/${date.getDate()}`;
 }
@@ -1079,28 +1141,52 @@ function renderFilesTable(items) {
   const container = document.getElementById("filesTable");
   if (!container) return;
   if (!items.length) {
-    container.innerHTML = `<div class="session-empty">暂无课程资料。上传教材、课件或笔记后，这里会展示可复习的资料卡片。</div>`;
+    container.innerHTML = `<div class="session-empty">暂无课程资料。上传教材、课件或笔记后，这里会展示可管理的资料列表。</div>`;
     return;
   }
 
-  container.innerHTML = items
-    .map(
-      (item) => `
-        <article class="file-card">
-          <div class="file-card-head">
-            <strong>${escapeHtml(item.filename || "课程资料")}</strong>
-            <span class="status-tag ${statusClass(item.parse_status)}">${escapeHtml(item.parse_status || "pending")}</span>
-          </div>
-          <p>${escapeHtml(item.course || "未命名课程")}</p>
-          <div class="file-meta">
-            <span>${escapeHtml(shortType(item.file_type))}</span>
-            <span>${escapeHtml(formatBytes(item.file_size))}</span>
-            <span>${escapeHtml(item.chunk_count || 0)} 个知识片段</span>
-          </div>
-        </article>
-      `,
-    )
-    .join("");
+  container.innerHTML = `
+    <div class="file-list-head">
+      <span>文件</span>
+      <span>课程</span>
+      <span>状态</span>
+      <span>大小</span>
+      <span>切片</span>
+      <span>操作</span>
+    </div>
+    ${items.map((item) => renderFileListRow(item)).join("")}
+  `;
+  container.querySelectorAll(".file-delete-btn").forEach((button) => {
+    button.addEventListener("click", () => deleteDashboardFile(button.dataset.fileId, button.dataset.filename));
+  });
+}
+
+function renderFileListRow(item) {
+  return `
+    <article class="file-list-row">
+      <div class="file-name-cell">
+        <strong title="${escapeHtml(item.filename || "课程资料")}">${escapeHtml(item.filename || "课程资料")}</strong>
+        <small>${escapeHtml(shortType(item.file_type))}</small>
+      </div>
+      <span>${escapeHtml(item.course || "未命名课程")}</span>
+      <span><b class="status-tag ${statusClass(item.parse_status)}">${escapeHtml(item.parse_status || "pending")}</b></span>
+      <span>${escapeHtml(formatBytes(item.file_size))}</span>
+      <span>${escapeHtml(item.chunk_count || 0)} 个</span>
+      <button class="secondary-btn danger-btn file-delete-btn" type="button" data-file-id="${escapeHtml(item.id)}" data-filename="${escapeHtml(item.filename || "课程资料")}">删除</button>
+    </article>
+  `;
+}
+
+async function deleteDashboardFile(fileId, filename) {
+  if (!fileId) return;
+  const confirmed = confirm(`确定删除资料“${filename || "课程资料"}”吗？\n将同时删除数据库中的知识切片和向量记录。`);
+  if (!confirmed) return;
+  try {
+    await deleteJson(`/api/dashboard/files/${encodeURIComponent(fileId)}`);
+    await loadDashboard();
+  } catch (error) {
+    alert(error.message);
+  }
 }
 
 function renderProfiles(items) {
@@ -1208,29 +1294,118 @@ async function searchDashboardKnowledge() {
   const container = document.getElementById("dashboardSearchResults");
   if (!query) {
     container.textContent = "输入知识点后，可以在课程资料中快速找到相关内容。";
+    lastSearchItems = [];
     return;
   }
 
   try {
     const result = await postJson("/api/knowledge/search", {query, top_k: 8});
     const items = result.items || [];
+    lastSearchItems = items;
     if (!items.length) {
       container.textContent = "暂无检索结果。";
       return;
     }
     container.innerHTML = items
-      .map(
-        (item) => `
-          <div class="context-item">
-            <strong>${escapeHtml(item.filename)} · 第 ${escapeHtml(item.chunk_index)} 段 · 相关度 ${escapeHtml(item.score ?? "-")}</strong>
-            <p>${escapeHtml(item.text)}</p>
-          </div>
-        `,
-      )
+      .map((item) => renderMaterialResult(item))
       .join("");
+    container.querySelectorAll(".material-action").forEach((button) => {
+      button.addEventListener("click", () => handleMaterialAction(button));
+    });
   } catch (error) {
+    lastSearchItems = [];
     container.textContent = error.message;
   }
+}
+
+function renderMaterialResult(item) {
+  const pageLabel = item.page_number ? `第 ${item.page_number} 页` : `第 ${item.chunk_index} 段`;
+  const pageBadge = item.is_pdf && item.page_number ? "可跳页" : item.is_pdf ? "可预览" : "非 PDF";
+  const previewDisabled = item.file_id && item.is_pdf ? "" : "disabled";
+  return `
+    <article class="context-item material-result">
+      <div class="material-result-head">
+        <strong>${escapeHtml(item.filename)} · ${escapeHtml(pageLabel)} · 相关度 ${escapeHtml(item.score ?? "-")}</strong>
+        <span>${escapeHtml(pageBadge)}</span>
+      </div>
+      <p>${escapeHtml(item.text)}</p>
+      <div class="material-actions">
+        <button class="secondary-btn material-action" type="button" data-action="detail" data-chunk-id="${escapeHtml(item.id)}">查看片段</button>
+        <button class="secondary-btn material-action" type="button" data-action="preview" data-chunk-id="${escapeHtml(item.id)}" data-file-id="${escapeHtml(item.file_id || "")}" data-page-number="${escapeHtml(item.page_number || "")}" ${previewDisabled}>打开原文</button>
+      </div>
+    </article>
+  `;
+}
+
+function handleMaterialAction(button) {
+  const action = button.dataset.action;
+  const item = getSearchItemByChunkId(button.dataset.chunkId);
+  if (action === "detail") {
+    openChunkDetail(button.dataset.chunkId);
+  } else if (action === "preview") {
+    openPdfPreview(button.dataset.fileId || item?.file_id, button.dataset.pageNumber || item?.page_number, item);
+  }
+}
+
+function getSearchItemByChunkId(chunkId) {
+  return lastSearchItems.find((item) => String(item.id) === String(chunkId));
+}
+
+async function openChunkDetail(chunkId) {
+  if (!chunkId) return;
+  try {
+    const item = await getJson(`/api/knowledge/chunks/${encodeURIComponent(chunkId)}`);
+    activeChunkDetail = item;
+    renderChunkDetail(item);
+    chunkDetailModal?.classList.remove("hidden");
+  } catch (error) {
+    alert(error.message);
+  }
+}
+
+function renderChunkDetail(item) {
+  if (!item) return;
+  const pageLabel = item.page_number ? `第 ${item.page_number} 页` : `第 ${item.chunk_index} 段`;
+  chunkDetailTitle.textContent = item.filename || "资料片段";
+  chunkDetailMeta.textContent = `${pageLabel} · ${item.file?.file_type || "课程资料"}`;
+  chunkDetailText.innerHTML = splitParagraphs(item.text || "")
+    .map((paragraph) => `<p>${escapeHtml(paragraph)}</p>`)
+    .join("");
+  chunkPrevBtn.disabled = !item.previous_chunk_id;
+  chunkNextBtn.disabled = !item.next_chunk_id;
+  chunkPreviewBtn.disabled = !item.file_id || !item.is_pdf;
+}
+
+function splitParagraphs(text) {
+  return String(text || "")
+    .split(/\n{2,}/)
+    .map((part) => part.trim())
+    .filter(Boolean);
+}
+
+function openPdfPreview(fileId, pageNumber, item = null) {
+  if (!fileId) return;
+  const pageHash = pageNumber ? `#page=${encodeURIComponent(pageNumber)}` : "";
+  pdfSideUrl = `/api/knowledge/files/${encodeURIComponent(fileId)}/preview${pageHash}`;
+  pdfSideFrame.src = pdfSideUrl;
+  pdfSideTitle.textContent = item?.filename || activeChunkDetail?.filename || "原文 PDF";
+  pdfSideMeta.textContent = item?.file_type || activeChunkDetail?.file_type || "PDF Preview";
+  pdfSidePage.textContent = pageNumber ? `定位到第 ${pageNumber} 页` : "未记录页码，默认打开首页";
+  pdfSidePanel?.classList.remove("hidden");
+  appShell?.classList.add("pdf-reader-open");
+  closeChunkDetail();
+}
+
+function closeChunkDetail() {
+  chunkDetailModal?.classList.add("hidden");
+  activeChunkDetail = null;
+}
+
+function closePdfSidePanel() {
+  pdfSidePanel?.classList.add("hidden");
+  pdfSideFrame?.removeAttribute("src");
+  pdfSideUrl = "";
+  appShell?.classList.remove("pdf-reader-open");
 }
 
 async function postJson(url, payload) {
@@ -1238,6 +1413,18 @@ async function postJson(url, payload) {
     method: "POST",
     headers: authHeaders(true),
     body: JSON.stringify(payload),
+  });
+  if (!response.ok) {
+    const detail = await response.json().catch(() => ({}));
+    throw new Error(detail.detail || `请求失败：${response.status}`);
+  }
+  return response.json();
+}
+
+async function deleteJson(url) {
+  const response = await fetch(url, {
+    method: "DELETE",
+    headers: authHeaders(false),
   });
   if (!response.ok) {
     const detail = await response.json().catch(() => ({}));
