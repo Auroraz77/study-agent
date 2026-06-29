@@ -349,6 +349,7 @@ class LearningRepository:
                 "knowledge_embeddings": self.session.scalar(select(func.count(KnowledgeEmbedding.id))) or 0,
                 "student_profiles": self._count_for_student(StudentProfile, student_id),
                 "generated_resources": self._count_for_student(GeneratedResource, student_id),
+                "learning_paths": self._count_for_student(LearningPath, student_id),
                 "learning_events": self._count_for_student(LearningEvent, student_id),
             },
             "file_status": [

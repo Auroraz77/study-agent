@@ -8,8 +8,7 @@ const refreshDashboardBtn = document.getElementById("refreshDashboardBtn");
 const dashboardSearchBtn = document.getElementById("dashboardSearchBtn");
 const dashboardStatus = document.getElementById("dashboardStatus");
 const exportPptBtn = document.getElementById("exportPptBtn");
-const askBtn = document.getElementById("askBtn");
-const qaQuestion = document.getElementById("qaQuestion");
+const composerInput = document.getElementById("message");
 const qaHistory = document.getElementById("qaHistory");
 const qaResizeHandle = document.getElementById("qaResizeHandle");
 const qaModeButtons = document.querySelectorAll(".qa-mode-option");
@@ -38,19 +37,18 @@ let currentFinalAnswer = "";
 let dashboardLoaded = false;
 let authToken = localStorage.getItem("learning_auth_token") || "";
 let currentUser = null;
-let qaMode = localStorage.getItem("learning_qa_mode") || "rag";
+let qaMode = localStorage.getItem("learning_qa_mode") || "learn";
 let currentSpeechAudio = null;
 let localSpeechParts = [];
 let localSpeechIndex = 0;
 let localSpeechStopped = true;
 
-runBtn.addEventListener("click", runWorkflow);
+runBtn.addEventListener("click", submitComposer);
 seedBtn.addEventListener("click", seedKnowledge);
 uploadBtn.addEventListener("click", uploadKnowledge);
 refreshDashboardBtn.addEventListener("click", loadDashboard);
 dashboardSearchBtn.addEventListener("click", searchDashboardKnowledge);
 exportPptBtn.addEventListener("click", exportCurrentPpt);
-askBtn.addEventListener("click", askQuestion);
 qaModeTrigger.addEventListener("click", toggleQaModeMenu);
 qaModeButtons.forEach((button) => {
   button.addEventListener("click", () => {
@@ -78,6 +76,12 @@ document.addEventListener("keydown", (event) => {
 document.addEventListener("click", (event) => {
   if (!qaModeMenu?.contains(event.target) && !qaModeTrigger?.contains(event.target)) {
     closeQaModeMenu();
+  }
+  const promptChip = event.target.closest?.(".qa-prompt-chip");
+  if (promptChip) {
+    setQaMode("rag");
+    composerInput.value = promptChip.textContent.trim();
+    composerInput.focus();
   }
 });
 
@@ -110,7 +114,9 @@ function initQaResize() {
 
   const savedWidth = Number(localStorage.getItem("learning_qa_width") || 0);
   if (savedWidth) {
-    grid.style.setProperty("--qa-width", `${savedWidth}px`);
+    const width = Math.min(420, Math.max(280, savedWidth));
+    grid.style.setProperty("--qa-width", `${width}px`);
+    document.documentElement.style.setProperty("--qa-width", `${width}px`);
   }
 
   let dragging = false;
@@ -123,10 +129,11 @@ function initQaResize() {
   qaResizeHandle.addEventListener("pointermove", (event) => {
     if (!dragging) return;
     const rect = grid.getBoundingClientRect();
-    const minWidth = 360;
-    const maxWidth = Math.min(760, Math.max(minWidth, rect.width * 0.55));
+    const minWidth = 280;
+    const maxWidth = Math.min(420, Math.max(minWidth, rect.width * 0.36));
     const width = Math.round(Math.min(maxWidth, Math.max(minWidth, rect.right - event.clientX)));
     grid.style.setProperty("--qa-width", `${width}px`);
+    document.documentElement.style.setProperty("--qa-width", `${width}px`);
     localStorage.setItem("learning_qa_width", String(width));
   });
 
@@ -138,10 +145,23 @@ function initQaResize() {
 }
 
 function setQaMode(mode) {
-  qaMode = mode === "llm" ? "llm" : "rag";
+  qaMode = ["learn", "rag", "llm"].includes(mode) ? mode : "learn";
   localStorage.setItem("learning_qa_mode", qaMode);
   if (qaModeLabel) {
-    qaModeLabel.textContent = qaMode === "llm" ? "直接问AI" : "结合知识库";
+    const labels = {
+      learn: "生成方案",
+      rag: "结合资料问答",
+      llm: "直接问 AI",
+    };
+    qaModeLabel.textContent = labels[qaMode];
+  }
+  if (composerInput) {
+    const placeholders = {
+      learn: "描述你想学习的课程、知识短板、学习偏好和时间安排。",
+      rag: "输入学习中遇到的问题，将结合课程资料回答。",
+      llm: "输入任意学习问题，直接向 AI 提问。",
+    };
+    composerInput.placeholder = placeholders[qaMode];
   }
   qaModeButtons.forEach((button) => {
     button.classList.toggle("active", button.dataset.mode === qaMode);
@@ -158,14 +178,23 @@ function closeQaModeMenu() {
   qaModeTrigger?.setAttribute("aria-expanded", "false");
 }
 
+async function submitComposer() {
+  if (qaMode === "learn") {
+    await runWorkflow();
+  } else {
+    await askQuestion();
+  }
+}
+
 async function runWorkflow() {
   if (!requireLogin()) return;
   setStatus("running", "生成中");
   runBtn.disabled = true;
+  runBtn.querySelector("span").textContent = "生成中";
 
   const payload = {
     course: document.getElementById("course").value.trim() || "机器学习",
-    message: document.getElementById("message").value.trim(),
+    message: composerInput.value.trim(),
   };
 
   try {
@@ -178,6 +207,7 @@ async function runWorkflow() {
     document.getElementById("finalAnswer").textContent = error.message;
   } finally {
     runBtn.disabled = false;
+    runBtn.querySelector("span").textContent = "发送";
   }
 }
 
@@ -218,9 +248,9 @@ async function uploadKnowledge() {
     }
     const result = await response.json();
     if (result.parse_status === "parsed") {
-      kbStatus.textContent = `${result.filename} 已上传到 MinIO，并切分为 ${result.chunks} 个知识片段。`;
+      kbStatus.textContent = `${result.filename} 已上传成功，并整理出 ${result.chunks} 个可检索知识片段。`;
     } else {
-      kbStatus.textContent = `${result.filename} 已上传到 MinIO，但解析未完成：${result.message || result.parse_status}`;
+      kbStatus.textContent = `${result.filename} 已上传，资料解析暂未完成：${result.message || result.parse_status}`;
     }
     dashboardLoaded = false;
     setStatus("done", "已上传");
@@ -232,14 +262,14 @@ async function uploadKnowledge() {
 
 async function askQuestion() {
   if (!requireLogin()) return;
-  const question = qaQuestion.value.trim();
+  const question = composerInput.value.trim();
   if (!question) {
-    qaQuestion.focus();
+    composerInput.focus();
     return;
   }
 
-  askBtn.disabled = true;
-  askBtn.textContent = "回答中";
+  runBtn.disabled = true;
+  runBtn.querySelector("span").textContent = "回答中";
   appendQaMessage({
     question,
     answer: qaMode === "rag" ? "正在检索课程资料并生成回答..." : "正在直接请求 AI 生成回答...",
@@ -251,7 +281,7 @@ async function askQuestion() {
     const result = await postJson("/api/qa/ask", {
       course: document.getElementById("course").value.trim() || "机器学习",
       question,
-      learning_context: qaMode === "rag" ? document.getElementById("message").value.trim() : "",
+      learning_context: qaMode === "rag" ? currentFinalAnswer || "" : "",
       mode: qaMode,
     });
     updateLastQaMessage({
@@ -260,7 +290,7 @@ async function askQuestion() {
       context: result.retrieved_context || [],
       mode: result.mode || qaMode,
     });
-    qaQuestion.value = "";
+    composerInput.value = "";
     dashboardLoaded = false;
   } catch (error) {
     updateLastQaMessage({
@@ -270,8 +300,8 @@ async function askQuestion() {
       mode: qaMode,
     });
   } finally {
-    askBtn.disabled = false;
-    askBtn.textContent = "提问";
+    runBtn.disabled = false;
+    runBtn.querySelector("span").textContent = "发送";
   }
 }
 
@@ -297,7 +327,7 @@ function updateLastQaMessage(entry) {
 }
 
 function renderQaMessage(entry) {
-  const modeLabel = entry.mode === "llm" ? "直接问AI" : "结合知识库";
+  const modeLabel = entry.mode === "llm" ? "直接问 AI" : "结合资料问答";
   const sources =
     Array.isArray(entry.context) && entry.context.length
       ? `
@@ -341,7 +371,9 @@ function renderResult(result) {
   currentLearningPath = result.learning_path || {};
   currentFinalAnswer = result.final_answer || "已生成。";
 
-  document.getElementById("finalAnswer").textContent = currentFinalAnswer;
+  const finalAnswer = document.getElementById("finalAnswer");
+  finalAnswer.classList.remove("empty-answer");
+  finalAnswer.textContent = currentFinalAnswer;
   renderProfile(result.profile || {});
   renderContext(result.retrieved_context || []);
   renderResources(result.resources || []);
@@ -401,10 +433,12 @@ function renderResources(resources) {
 
   if (!resources.length) {
     tabs.innerHTML = "";
-    content.textContent = "暂无资源。";
+    content.classList.add("resource-empty-view");
+    content.innerHTML = renderResourceEmpty();
     return;
   }
 
+  content.classList.remove("resource-empty-view");
   tabs.innerHTML = resources
     .map(
       (resource, index) => `
@@ -424,6 +458,28 @@ function renderResources(resources) {
   });
 
   showResource(0);
+}
+
+function renderResourceEmpty() {
+  return `
+    <div class="resource-empty-grid">
+      <div>
+        <span>讲解</span>
+        <strong>个性化讲解文档</strong>
+        <p>生成后可阅读和本地朗读。</p>
+      </div>
+      <div>
+        <span>练习</span>
+        <strong>个性化练习题</strong>
+        <p>支持提交、评分和错题分析。</p>
+      </div>
+      <div>
+        <span>实操</span>
+        <strong>代码实操案例</strong>
+        <p>把知识点落到代码任务里。</p>
+      </div>
+    </div>
+  `;
 }
 
 async function exportCurrentPpt() {
@@ -937,14 +993,10 @@ async function loadDashboard() {
 function renderDashboardMetrics(summary) {
   const counts = summary.counts || {};
   const metrics = [
-    ["课程数量", counts.courses],
-    ["上传文件", counts.files],
-    ["已解析文件", counts.parsed_files],
-    ["知识切片", counts.knowledge_chunks],
-    ["向量数量", counts.knowledge_embeddings],
-    ["学生画像", counts.student_profiles],
-    ["生成资源", counts.generated_resources],
-    ["学习事件", counts.learning_events],
+    ["学习记录", counts.learning_paths],
+    ["课程资料", counts.files],
+    ["学习资源", counts.generated_resources],
+    ["学习画像", counts.student_profiles],
   ];
 
   document.getElementById("dashboardMetrics").innerHTML = metrics
@@ -1024,25 +1076,28 @@ function formatRelativeDate(value) {
 }
 
 function renderFilesTable(items) {
-  const tbody = document.getElementById("filesTable");
+  const container = document.getElementById("filesTable");
+  if (!container) return;
   if (!items.length) {
-    tbody.innerHTML = `<tr><td colspan="8">暂无课程资料。</td></tr>`;
+    container.innerHTML = `<div class="session-empty">暂无课程资料。上传教材、课件或笔记后，这里会展示可复习的资料卡片。</div>`;
     return;
   }
 
-  tbody.innerHTML = items
+  container.innerHTML = items
     .map(
       (item) => `
-        <tr>
-          <td>${escapeHtml(item.id)}</td>
-          <td>${escapeHtml(item.course)}</td>
-          <td>${escapeHtml(item.filename)}</td>
-          <td>${escapeHtml(shortType(item.file_type))}</td>
-          <td>${escapeHtml(formatBytes(item.file_size))}</td>
-          <td><span class="status-tag ${statusClass(item.parse_status)}">${escapeHtml(item.parse_status)}</span></td>
-          <td>${escapeHtml(item.chunk_count || 0)}</td>
-          <td class="clip-cell" title="${escapeHtml(item.object_name || "")}">${escapeHtml(item.object_name || "-")}</td>
-        </tr>
+        <article class="file-card">
+          <div class="file-card-head">
+            <strong>${escapeHtml(item.filename || "课程资料")}</strong>
+            <span class="status-tag ${statusClass(item.parse_status)}">${escapeHtml(item.parse_status || "pending")}</span>
+          </div>
+          <p>${escapeHtml(item.course || "未命名课程")}</p>
+          <div class="file-meta">
+            <span>${escapeHtml(shortType(item.file_type))}</span>
+            <span>${escapeHtml(formatBytes(item.file_size))}</span>
+            <span>${escapeHtml(item.chunk_count || 0)} 个知识片段</span>
+          </div>
+        </article>
       `,
     )
     .join("");
@@ -1051,23 +1106,25 @@ function renderFilesTable(items) {
 function renderProfiles(items) {
   const container = document.getElementById("profilesList");
   if (!items.length) {
-    container.textContent = "暂无学生画像。";
+    container.innerHTML = `<div class="session-empty">暂无学习画像。生成一次学习方案后，系统会自动整理你的目标、基础和偏好。</div>`;
     return;
   }
 
   container.innerHTML = items
     .map(
       (item) => `
-        <article class="record-item">
+        <article class="profile-card">
           <div class="record-title">
-            <strong>${escapeHtml(item.student_id)}</strong>
+            <strong>${escapeHtml(item.course || "课程学习")}</strong>
             <span>${escapeHtml(item.course)}</span>
           </div>
-          <p>${escapeHtml(item.learning_goal || "暂无学习目标")}</p>
-          <p><b>基础：</b>${escapeHtml(item.knowledge_base || "-")}</p>
-          <p><b>薄弱点：</b>${escapeHtml((item.weaknesses || []).join("、") || "-")}</p>
-          <p><b>偏好：</b>${escapeHtml((item.learning_style || []).join("、") || "-")}</p>
-          <small>${escapeHtml(item.updated_at || "")}</small>
+          <p class="profile-goal">${escapeHtml(item.learning_goal || "暂无学习目标")}</p>
+          <div class="profile-chip-grid">
+            <span class="profile-chip"><b>基础</b>${escapeHtml(item.knowledge_base || "-")}</span>
+            <span class="profile-chip"><b>薄弱点</b>${escapeHtml((item.weaknesses || []).join("、") || "-")}</span>
+            <span class="profile-chip"><b>偏好</b>${escapeHtml((item.learning_style || []).join("、") || "-")}</span>
+          </div>
+          <small>最近更新：${escapeHtml(item.updated_at || "-")}</small>
         </article>
       `,
     )
@@ -1150,7 +1207,7 @@ async function searchDashboardKnowledge() {
   const query = document.getElementById("dashboardSearchInput").value.trim();
   const container = document.getElementById("dashboardSearchResults");
   if (!query) {
-    container.textContent = "请输入检索关键词。";
+    container.textContent = "输入知识点后，可以在课程资料中快速找到相关内容。";
     return;
   }
 
@@ -1165,7 +1222,7 @@ async function searchDashboardKnowledge() {
       .map(
         (item) => `
           <div class="context-item">
-            <strong>${escapeHtml(item.filename)} #${escapeHtml(item.chunk_index)} · score ${escapeHtml(item.score ?? "-")}</strong>
+            <strong>${escapeHtml(item.filename)} · 第 ${escapeHtml(item.chunk_index)} 段 · 相关度 ${escapeHtml(item.score ?? "-")}</strong>
             <p>${escapeHtml(item.text)}</p>
           </div>
         `,
@@ -1283,7 +1340,6 @@ function updateAuthView() {
   }
   runBtn.disabled = !loggedIn;
   refreshDashboardBtn.disabled = !loggedIn;
-  askBtn.disabled = !loggedIn;
 }
 
 function requireLogin() {

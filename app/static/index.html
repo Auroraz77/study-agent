@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>个性化学习多智能体系统</title>
-    <link rel="stylesheet" href="/styles.css?v=path2" />
+    <link rel="stylesheet" href="/styles.css?v=student5" />
   </head>
   <body>
     <div class="app-shell">
@@ -12,45 +12,39 @@
         <div class="brand">
           <div class="brand-mark">LG</div>
           <div>
-            <h1>学习智能体</h1>
-            <p>LangGraph Multi-Agent</p>
+            <h1>AI 学习平台</h1>
+            <p>个性化学习助手</p>
           </div>
         </div>
 
         <nav class="nav-switch" aria-label="页面切换">
           <button id="workspaceNav" class="nav-btn active" data-view="workspaceView">学习工作台</button>
-          <button id="dashboardNav" class="nav-btn" data-view="dashboardView">数据中心</button>
+          <button id="dashboardNav" class="nav-btn" data-view="dashboardView">学习中心</button>
         </nav>
 
-        <section class="panel workspace-panel">
-          <h2>学生需求</h2>
-          <label>
-            课程
-            <input id="course" value="机器学习" />
-          </label>
-          <label>
-            学习描述
-            <textarea id="message" rows="8">我是人工智能专业学生，想学习逻辑回归和模型评估。我的 Python 基础还可以，但数学基础一般，更喜欢图解和代码案例，每周大概能学习 6 小时。</textarea>
-          </label>
-          <button id="runBtn" class="primary-btn">
-            <span>生成方案</span>
-          </button>
+        <section class="panel workspace-panel learning-flow-panel">
+          <h2>学习流程</h2>
+          <ol class="flow-list">
+            <li>填写学习目标</li>
+            <li>生成个性化资源</li>
+            <li>练习、提问并复习</li>
+          </ol>
         </section>
 
         <section class="panel workspace-panel">
-          <h2>课程知识库</h2>
+          <h2>课程资料</h2>
           <div class="upload-row">
             <input id="fileInput" type="file" accept=".txt,.md,.csv,.pdf,.doc,.docx,.ppt,.pptx" />
             <button id="uploadBtn" class="secondary-btn">上传</button>
           </div>
           <button id="seedBtn" class="secondary-btn full">导入演示资料</button>
-          <p id="kbStatus" class="muted">原文件上传到 MinIO；文档解析后进入 PostgreSQL/pgvector。</p>
+          <p id="kbStatus" class="muted">上传课程资料后，系统会自动解析并用于后续学习问答。</p>
         </section>
 
         <section class="panel dashboard-panel hidden">
-          <h2>数据中心</h2>
-          <button id="refreshDashboardBtn" class="primary-btn">刷新数据</button>
-          <p class="muted">展示 PostgreSQL、pgvector 和 MinIO 沉淀的数据。</p>
+          <h2>学习中心</h2>
+          <button id="refreshDashboardBtn" class="primary-btn">刷新学习记录</button>
+          <p class="muted">查看最近学习、课程资料和个人学习画像。</p>
         </section>
       </aside>
 
@@ -97,83 +91,90 @@
       <main id="workspaceView" class="workspace app-view active">
         <header class="topbar">
           <div>
-            <p class="eyebrow">Personalized Learning Workflow</p>
-            <h2>个性化资源生成与学习路径规划</h2>
+            <p class="eyebrow">Personalized Study Plan</p>
+            <h2>个性化学习工作台</h2>
           </div>
           <div id="statusPill" class="status-pill">待生成</div>
         </header>
 
-        <section class="summary-band">
-          <div>
-            <span class="metric-label">画像智能体</span>
-            <strong id="profileMetric">未运行</strong>
-          </div>
-          <div>
-            <span class="metric-label">RAG 检索</span>
-            <strong id="ragMetric">0 条</strong>
-          </div>
-          <div>
-            <span class="metric-label">资源智能体</span>
-            <strong id="resourceMetric">0 类</strong>
-          </div>
-          <div>
-            <span class="metric-label">路径规划</span>
-            <strong id="pathMetric">未生成</strong>
-          </div>
-        </section>
-
         <section class="content-grid">
           <div class="main-column">
-            <section class="section-block qa-block">
-              <div id="qaResizeHandle" class="qa-resize-handle" title="拖动调整问答栏宽度"></div>
+            <section class="section-block">
               <div class="section-heading">
-                <h3>学习问答</h3>
-                <span class="muted">结合当前课程与知识库回答</span>
-              </div>
-              <div class="qa-input-row">
-                <textarea id="qaQuestion" rows="3" placeholder="输入学习中遇到的问题，例如：为什么 HDFS 适合大文件存储？"></textarea>
-                <div class="qa-input-actions">
-                  <div class="qa-mode-menu-wrap">
-                    <button id="qaModeTrigger" class="qa-mode-trigger" type="button" aria-expanded="false">
-                      <span id="qaModeLabel">结合知识库</span>
-                      <span class="qa-mode-caret">⌄</span>
-                    </button>
-                    <div id="qaModeMenu" class="qa-mode-menu hidden">
-                      <button id="qaModeRag" class="qa-mode-option active" type="button" data-mode="rag">
-                        <span>结合知识库</span>
-                        <small>检索课程资料后回答</small>
-                      </button>
-                      <button id="qaModeLlm" class="qa-mode-option" type="button" data-mode="llm">
-                        <span>直接问AI</span>
-                        <small>不检索资料，直接回答</small>
-                      </button>
-                    </div>
-                  </div>
-                  <button id="askBtn" class="primary-btn" type="button">提问</button>
+                <h3>我的学习资源</h3>
+                <div class="resource-heading-actions">
+                  <div id="resourceTabs" class="tabs"></div>
+                  <button id="exportPptBtn" class="secondary-btn export-ppt-btn" type="button" disabled>导出PPT</button>
                 </div>
               </div>
-              <div id="qaHistory" class="qa-history">
-                <div class="qa-empty">暂无问答。生成学习方案或上传资料后，可以在这里继续追问。</div>
-              </div>
+              <article id="resourceContent" class="resource-view resource-empty-view">
+                <div class="resource-empty-grid">
+                  <div>
+                    <span>讲解</span>
+                    <strong>个性化讲解文档</strong>
+                    <p>生成后可阅读和本地朗读。</p>
+                  </div>
+                  <div>
+                    <span>练习</span>
+                    <strong>个性化练习题</strong>
+                    <p>支持提交、评分和错题分析。</p>
+                  </div>
+                  <div>
+                    <span>实操</span>
+                    <strong>代码实操案例</strong>
+                    <p>把知识点落到代码任务里。</p>
+                  </div>
+                </div>
+              </article>
             </section>
 
             <section class="section-block">
               <div class="section-heading">
                 <h3>学习方案摘要</h3>
               </div>
-              <pre id="finalAnswer" class="answer-box">填写学生需求后，点击“生成方案”。</pre>
+              <pre id="finalAnswer" class="answer-box empty-answer">还没有生成学习方案。
+
+在底部输入学习描述并点击“生成方案”，系统会在这里整理你的学习目标、推荐路径和资源摘要。</pre>
             </section>
 
-            <section class="section-block">
+            <section class="summary-band workspace-metrics">
+              <div>
+                <span class="metric-label">当前课程</span>
+                <strong id="profileMetric">未运行</strong>
+              </div>
+              <div>
+                <span class="metric-label">资料检索</span>
+                <strong id="ragMetric">0 条</strong>
+              </div>
+              <div>
+                <span class="metric-label">学习资源</span>
+                <strong id="resourceMetric">0 类</strong>
+              </div>
+              <div>
+                <span class="metric-label">学习路径</span>
+                <strong id="pathMetric">未生成</strong>
+              </div>
+            </section>
+
+            <section class="section-block qa-block">
+              <div id="qaResizeHandle" class="qa-resize-handle" title="拖动调整问答栏宽度"></div>
               <div class="section-heading">
-                <h3>个性化资源</h3>
-                <div class="resource-heading-actions">
-                  <div id="resourceTabs" class="tabs"></div>
-                  <button id="exportPptBtn" class="secondary-btn export-ppt-btn" type="button" disabled>导出PPT</button>
+                <h3>学习问答</h3>
+                <span class="muted">结合当前课程与知识库回答</span>
+              </div>
+              <div id="qaHistory" class="qa-history">
+                <div class="qa-empty">
+                  <strong>AI 学习助手在这里等你提问</strong>
+                  <p>生成学习方案或上传资料后，可以继续追问课程内容。</p>
+                  <div class="qa-prompt-grid">
+                    <button class="qa-prompt-chip" type="button">帮我总结当前知识点</button>
+                    <button class="qa-prompt-chip" type="button">给我举一个代码例子</button>
+                    <button class="qa-prompt-chip" type="button">根据资料出一道题</button>
+                  </div>
                 </div>
               </div>
-              <article id="resourceContent" class="resource-view">暂无资源。</article>
             </section>
+
           </div>
 
           <div class="side-column">
@@ -193,13 +194,47 @@
             </section>
           </div>
         </section>
+
+        <section class="study-composer" aria-label="学习方案生成输入框">
+          <div class="study-composer-shell">
+            <div class="composer-controls">
+              <div class="qa-mode-menu-wrap composer-mode-wrap">
+                <button id="qaModeTrigger" class="qa-mode-trigger" type="button" aria-expanded="false">
+                  <span id="qaModeLabel">生成方案</span>
+                  <span class="qa-mode-caret">⌄</span>
+                </button>
+                <div id="qaModeMenu" class="qa-mode-menu hidden">
+                  <button id="qaModeLearn" class="qa-mode-option active" type="button" data-mode="learn">
+                    <span>生成方案</span>
+                    <small>生成讲解文档、练习题、代码案例和学习路径</small>
+                  </button>
+                  <button id="qaModeRag" class="qa-mode-option" type="button" data-mode="rag">
+                    <span>结合资料问答</span>
+                    <small>检索课程资料后回答</small>
+                  </button>
+                  <button id="qaModeLlm" class="qa-mode-option" type="button" data-mode="llm">
+                    <span>直接问 AI</span>
+                    <small>不检索资料，直接回答</small>
+                  </button>
+                </div>
+              </div>
+              <input id="course" class="composer-course" value="机器学习" aria-label="课程" />
+            </div>
+            <div class="composer-main">
+              <textarea id="message" rows="2" aria-label="学习描述" placeholder="描述你想学习的课程、知识短板、学习偏好和时间安排。">我是人工智能专业学生，想学习逻辑回归和模型评估。我的 Python 基础还可以，但数学基础一般，更喜欢图解和代码案例，每周大概能学习 6 小时。</textarea>
+              <button id="runBtn" class="primary-btn study-generate-btn">
+                <span>发送</span>
+              </button>
+            </div>
+          </div>
+        </section>
       </main>
 
       <main id="dashboardView" class="workspace app-view hidden">
         <header class="topbar">
           <div>
-            <p class="eyebrow">Data Center</p>
-            <h2>系统数据中心</h2>
+            <p class="eyebrow">My Learning Center</p>
+            <h2>我的学习中心</h2>
           </div>
           <div id="dashboardStatus" class="status-pill">待刷新</div>
         </header>
@@ -209,42 +244,26 @@
         <section class="dashboard-layout">
           <section class="section-block">
             <div class="section-heading">
-              <h3>最近学习记录</h3>
-              <span class="muted">点击卡片可再次学习</span>
+              <h3>最近学习</h3>
+              <span class="muted">点击卡片可继续学习</span>
             </div>
             <div id="sessionsList" class="session-gallery"></div>
           </section>
 
           <section class="section-block">
             <div class="section-heading">
-              <h3>课程资料管理</h3>
-              <span class="muted">course_files + knowledge_chunks</span>
+              <h3>我的课程资料</h3>
+              <span class="muted">已解析的学习资料</span>
             </div>
-            <div class="data-table-wrap">
-              <table class="data-table">
-                <thead>
-                  <tr>
-                    <th>ID</th>
-                    <th>课程</th>
-                    <th>文件名</th>
-                    <th>类型</th>
-                    <th>大小</th>
-                    <th>状态</th>
-                    <th>切片</th>
-                    <th>MinIO 对象</th>
-                  </tr>
-                </thead>
-                <tbody id="filesTable"></tbody>
-              </table>
-            </div>
+            <div id="filesTable" class="file-card-grid"></div>
           </section>
 
           <section class="section-block">
             <div class="section-heading">
-              <h3>知识库检索</h3>
+              <h3>搜索我的资料</h3>
               <div class="search-row">
-                <input id="dashboardSearchInput" value="支持向量机 最大间隔 分类超平面" />
-                <button id="dashboardSearchBtn" class="secondary-btn">检索</button>
+                <input id="dashboardSearchInput" placeholder="输入想复习的知识点，例如：逻辑回归 模型评估" />
+                <button id="dashboardSearchBtn" class="secondary-btn">搜索</button>
               </div>
             </div>
             <div id="dashboardSearchResults" class="context-list dashboard-search-results">暂无检索结果。</div>
@@ -252,8 +271,8 @@
 
           <section class="section-block">
             <div class="section-heading">
-              <h3>学生画像</h3>
-              <span class="muted">student_profiles</span>
+              <h3>我的学习画像</h3>
+              <span class="muted">根据学习需求生成</span>
             </div>
             <div id="profilesList" class="record-list"></div>
           </section>
@@ -274,6 +293,6 @@
       };
     </script>
     <script defer src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
-    <script defer src="/app.js?v=path2"></script>
+    <script defer src="/app.js?v=student5"></script>
   </body>
 </html>
