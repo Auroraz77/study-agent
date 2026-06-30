@@ -1021,17 +1021,33 @@ function renderPath(path) {
   container.innerHTML = stages
     .map((stage, index) => {
       const resources = Array.isArray(stage.resources) ? stage.resources.join("、") : "";
+      const description = compactStageDescription(stage.goal, stage.action);
       return `
         <div class="stage">
           <strong>${index + 1}. ${escapeHtml(stage.name || "学习阶段")}</strong>
-          <p>${escapeHtml(stage.goal || "")}</p>
-          ${stage.action ? `<p>${escapeHtml(stage.action)}</p>` : ""}
-          <p>${escapeHtml(resources)}</p>
+          <p>${escapeHtml(description)}</p>
+          ${resources ? `<span class="stage-resource">${escapeHtml(resources)}</span>` : ""}
           ${stage.time ? `<small>${escapeHtml(stage.time)}</small>` : ""}
         </div>
       `;
     })
     .join("");
+}
+
+function compactStageDescription(goal, action) {
+  const text = [goal, action]
+    .map((item) => String(item || "").trim())
+    .filter(Boolean)
+    .join(" ");
+  if (!text) return "";
+  const sentences = text
+    .split(/(?<=[。！？!?；;])\s*/)
+    .map((item) => item.trim())
+    .filter(Boolean)
+    .slice(0, 2)
+    .join("");
+  const compact = sentences || text;
+  return compact.length > 110 ? `${compact.slice(0, 108)}...` : compact;
 }
 
 function switchView(viewId) {

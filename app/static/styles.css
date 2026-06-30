@@ -35,14 +35,14 @@ textarea {
 
 .app-shell {
   display: grid;
-  grid-template-columns: 360px minmax(0, 1fr);
+  grid-template-columns: 300px minmax(0, 1fr);
   min-height: 100vh;
 }
 
 .sidebar {
   border-right: 1px solid var(--line);
   background: rgba(255, 255, 255, 0.86);
-  padding: 24px;
+  padding: 18px;
 }
 
 .brand {
@@ -735,7 +735,7 @@ button:disabled {
 .study-composer {
   position: fixed;
   z-index: 24;
-  left: 388px;
+  left: 328px;
   right: calc(var(--qa-width, 300px) + 64px);
   bottom: 18px;
   pointer-events: none;
@@ -745,7 +745,7 @@ button:disabled {
   display: grid;
   grid-template-columns: 1fr;
   gap: 8px;
-  max-width: 820px;
+  max-width: 760px;
   margin: 0 auto;
   border: 1px solid rgba(217, 222, 231, 0.9);
   border-radius: 18px;
@@ -757,8 +757,23 @@ button:disabled {
 
 .composer-controls {
   display: grid;
+  grid-template-columns: max-content minmax(220px, 390px);
+  justify-content: start;
+  gap: 8px;
+}
+
+.composer-course-field {
+  display: grid;
   grid-template-columns: max-content minmax(0, 1fr);
   gap: 8px;
+  align-items: center;
+  min-width: 0;
+}
+
+.composer-course-field span {
+  color: #667085;
+  font-size: 13px;
+  font-weight: 850;
 }
 
 .composer-main {
@@ -770,9 +785,11 @@ button:disabled {
 
 .composer-course {
   min-height: 34px;
+  width: 100%;
   border-radius: 10px;
   padding: 7px 10px;
   font-weight: 800;
+  background: #fbfdff;
 }
 
 .composer-mode-wrap .qa-mode-trigger {
@@ -1056,10 +1073,10 @@ button:disabled {
   flex: 1 1 auto;
   display: grid;
   align-content: start;
-  gap: 18px;
+  gap: 14px;
   min-height: 0;
   max-height: none;
-  padding: 18px 14px;
+  padding: 16px 13px;
   overflow-y: auto;
   overscroll-behavior: contain;
   background:
@@ -1110,7 +1127,7 @@ button:disabled {
 
 .qa-message {
   display: grid;
-  gap: 12px;
+  gap: 10px;
   padding: 0;
   border: 0;
   border-radius: 0;
@@ -1169,17 +1186,18 @@ button:disabled {
 
 .qa-speaker {
   display: block;
-  margin-bottom: 5px;
+  margin-bottom: 4px;
   color: #667085;
-  font-size: 12px;
+  font-size: 11px;
   font-weight: 850;
 }
 
 .qa-bubble {
   max-width: min(100%, 620px);
   min-width: 0;
-  padding: 12px 14px;
-  line-height: 1.65;
+  padding: 10px 12px;
+  font-size: 14px;
+  line-height: 1.58;
   overflow-wrap: anywhere;
   box-shadow: 0 10px 24px rgba(31, 41, 55, 0.08);
 }
@@ -1188,7 +1206,8 @@ button:disabled {
   border-radius: 18px 6px 18px 18px;
   color: #fff;
   background: linear-gradient(135deg, #a855f7, #7c3aed);
-  font-weight: 750;
+  font-size: 14px;
+  font-weight: 720;
 }
 
 .qa-bubble-user .qa-speaker {
@@ -1204,26 +1223,49 @@ button:disabled {
 }
 
 .qa-answer {
-  line-height: 1.7;
+  font-size: 14px;
+  line-height: 1.62;
   color: #243041;
   min-width: 0;
 }
 
 .qa-answer p {
-  margin: 8px 0;
+  margin: 6px 0;
 }
 
 .qa-answer ul,
 .qa-answer ol {
-  margin: 8px 0;
-  padding-left: 22px;
+  margin: 6px 0;
+  padding-left: 19px;
+}
+
+.qa-answer li {
+  margin: 3px 0;
+}
+
+.qa-answer h1,
+.qa-answer h2,
+.qa-answer h3,
+.qa-answer h4 {
+  margin: 8px 0 6px;
+  color: #18202a;
+  font-size: 15px;
+  line-height: 1.35;
+}
+
+.qa-answer h1:first-child,
+.qa-answer h2:first-child,
+.qa-answer h3:first-child,
+.qa-answer h4:first-child {
+  margin-top: 0;
 }
 
 .qa-answer code {
   border-radius: 5px;
-  padding: 2px 5px;
+  padding: 1px 4px;
   background: #eef2f7;
   font-family: Consolas, "Cascadia Code", monospace;
+  font-size: 0.92em;
   white-space: break-spaces;
 }
 
@@ -1231,7 +1273,7 @@ button:disabled {
   max-width: 100%;
   overflow-x: auto;
   border-radius: 8px;
-  padding: 12px;
+  padding: 10px;
   background: #f8fafc;
 }
 
@@ -1240,6 +1282,41 @@ button:disabled {
   padding: 0;
   white-space: pre;
   background: transparent;
+}
+
+.qa-answer .table-wrap {
+  margin: 8px 0;
+  border-radius: 10px;
+}
+
+.qa-answer table {
+  width: 100%;
+  min-width: 460px;
+  border-collapse: collapse;
+  background: #fff;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.qa-answer th,
+.qa-answer td {
+  padding: 7px 8px;
+  border-right: 1px solid #dbe4f0;
+  border-bottom: 1px solid #dbe4f0;
+  text-align: left;
+  vertical-align: top;
+  word-break: break-word;
+}
+
+.qa-answer th {
+  color: #344054;
+  background: #f5f8ff;
+  font-weight: 850;
+}
+
+.qa-answer th:last-child,
+.qa-answer td:last-child {
+  border-right: 0;
 }
 
 .qa-sources {
@@ -1691,11 +1768,15 @@ button:disabled {
   display: grid;
   gap: 12px;
   margin-top: 14px;
+  min-width: 0;
+  overflow: hidden;
 }
 
 .stage {
   position: relative;
   padding-left: 18px;
+  min-width: 0;
+  overflow: hidden;
 }
 
 .stage::before {
@@ -1718,6 +1799,23 @@ button:disabled {
   margin: 0;
   color: var(--muted);
   line-height: 1.5;
+}
+
+.stage-resource {
+  display: block;
+  width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
+  margin-top: 5px;
+  border-radius: 999px;
+  padding: 3px 8px;
+  overflow: hidden;
+  color: #2563eb;
+  background: #eef4ff;
+  font-size: 12px;
+  font-weight: 850;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .stage small {
@@ -2421,7 +2519,7 @@ button:disabled {
 
 @media (max-width: 1180px) {
   .app-shell {
-    grid-template-columns: 320px minmax(0, 1fr);
+    grid-template-columns: 280px minmax(0, 1fr);
   }
 
   .content-grid {
@@ -2429,7 +2527,7 @@ button:disabled {
   }
 
   .study-composer {
-    left: 348px;
+    left: 308px;
     right: 28px;
   }
 

@@ -200,7 +200,8 @@ class LearningAgentGraph:
             "每个阶段必须包含 name, goal, action, resources, time。"
             "name 必须是具体学习任务名，禁止使用“学习阶段”“阶段一”“阶段二”“诊断”“练习”“实践”等模板词。"
             "goal 必须结合学生薄弱点、课程主题和已生成资源，写成可执行目标。"
-            "action 写学生下一步具体做什么。resources 只能从已生成资源标题中选择。time 给出建议时长。"
+            "goal 和 action 都必须精简：各写 1 句话，每句不超过 40 个汉字，不要写多步骤长段落。"
+            "resources 只能从已生成资源标题中选择。time 给出建议时长。"
         )
         user = (
             f"学生画像：{json.dumps(state.get('student_profile', {}), ensure_ascii=False)}\n"
@@ -389,8 +390,8 @@ def _normalize_learning_path(
         normalized.append(
             {
                 "name": name,
-                "goal": str(stage.get("goal") or fallback_stage["goal"]).strip(),
-                "action": str(stage.get("action") or fallback_stage["action"]).strip(),
+                "goal": _compact_stage_field(stage.get("goal") or fallback_stage["goal"]),
+                "action": _compact_stage_field(stage.get("action") or fallback_stage["action"]),
                 "resources": stage.get("resources") if isinstance(stage.get("resources"), list) else fallback_stage["resources"],
                 "time": str(stage.get("time") or fallback_stage["time"]).strip(),
             }
@@ -399,6 +400,15 @@ def _normalize_learning_path(
         "title": str(path.get("title") or fallback["title"]).strip(),
         "stages": normalized,
     }
+
+
+def _compact_stage_field(value: Any, limit: int = 48) -> str:
+    text = str(value or "").strip().replace("\n", " ")
+    if not text:
+        return ""
+    parts = re.split(r"(?<=[。！？!?；;])\s*", text)
+    first = next((part.strip() for part in parts if part.strip()), text)
+    return first if len(first) <= limit else f"{first[:limit]}..."
 
 
 def _is_generic_stage_name(name: str) -> bool:

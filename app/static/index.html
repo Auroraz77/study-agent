@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>个性化学习多智能体系统</title>
-    <link rel="stylesheet" href="/styles.css?v=student17" />
+    <link rel="stylesheet" href="/styles.css?v=student23" />
   </head>
   <body>
     <div class="app-shell">
@@ -225,7 +225,10 @@
                   </button>
                 </div>
               </div>
-              <input id="course" class="composer-course" value="机器学习" aria-label="课程" />
+              <label class="composer-course-field" for="course">
+                <span>课程</span>
+                <input id="course" class="composer-course" value="机器学习" aria-label="课程" />
+              </label>
             </div>
             <div class="composer-main">
               <textarea id="message" rows="2" aria-label="学习描述" placeholder="描述你想学习的课程、知识短板、学习偏好和时间安排。">我是人工智能专业学生，想学习逻辑回归和模型评估。我的 Python 基础还可以，但数学基础一般，更喜欢图解和代码案例，每周大概能学习 6 小时。</textarea>
@@ -335,6 +338,6 @@
       };
     </script>
     <script defer src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
-    <script defer src="/app.js?v=student17"></script>
+    <script defer src="/app.js?v=student23"></script>
   </body>
 </html>
