@@ -265,7 +265,8 @@ class LearningAgentGraph:
         )
         if self.llm.is_mock:
             return _mock_resource(task["type"], task["title"], profile, context)
-        return self.llm.chat(system, user, temperature=0.5)
+        content = self.llm.chat(system, user, temperature=0.5).strip()
+        return content or _mock_resource(task["type"], task["title"], profile, context)
 
     def _generate_quiz_items(
         self,
